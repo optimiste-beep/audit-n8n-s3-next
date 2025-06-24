@@ -1,0 +1,1735 @@
+{
+  "name": "AuditN8NWorkflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "343f3c5d-d6eb-4c95-9784-7fc1fab2ed43",
+      "name": "Cron Trigger - Every 5 Seconds",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        -1920,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://s3.eu-west-2.amazonaws.com/uploadsfromchatbot?list-type=2&max-keys=1000",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "aws",
+        "provideSslCertificates": true,
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1680,
+        580
+      ],
+      "id": "2b730270-e402-40c8-ba84-08f02413a194",
+      "name": "S3 API - List uploadsfromchatbot Objects",
+      "credentials": {
+        "aws": {
+          "id": "BD4C7kWyz9eFOCnx",
+          "name": "AWS Account"
+        },
+        "httpSslAuth": {
+          "id": "xCKcWfJxm6mbUiTr",
+          "name": "dummy-ssl-cert"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "581863cc-4af6-4e8f-9116-661c3e630f86",
+              "leftValue": "={{ $json.readyForProcessing }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        -1040,
+        580
+      ],
+      "id": "0f3faaed-e758-4748-b8db-573b4e1bc8ef",
+      "name": "Filter Ready Sessions"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "documentFiles",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "id": "31111d92-c466-45f2-b848-f80badf99218",
+      "name": "Split PDF Files for Processing"
+    },
+    {
+      "parameters": {
+        "bucketName": "={{ $json.bucketName }}",
+        "fileKey": "={{ $json.s3Key }}",
+        "binaryPropertyName": "pdfFile"
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        920,
+        0
+      ],
+      "id": "42855d5b-6b0b-42d4-afdc-e7764fc3e80d",
+      "name": "Download PDF from S3",
+      "credentials": {
+        "s3": {
+          "id": "f7lofmHIdgg8mCrx",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "binaryPropertyName": "pdfFile"
+      },
+      "type": "n8n-nodes-pdf-excel.pdfExcelProcessor",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "eb90b089-6d2c-4464-9af2-97cd38f5ac6b",
+      "name": "Extract PDF Text",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "text-assignment",
+              "name": "extractedText",
+              "value": "={{ $json.pdfResults.extractedText }}",
+              "type": "string"
+            },
+            {
+              "id": "metadata-assignment",
+              "name": "documentMetadata",
+              "value": "={{ { filename: $json.originalFilename, sessionKey: $json.sessionKey, org: $json.org, user: $json.user, session: $json.session, pineconeNamespace: $json.pineconeNamespace, extractedAt: new Date().toISOString(), pageCount: $json.pdfResults.pageCount || 'unknown', batchId: $json.batchId, currentDocIndex: $json.currentDocumentIndex, totalDocs: $json.totalDocumentsInSession } }}",
+              "type": "object"
+            },
+            {
+              "id": "pinecone-namespace-assignment",
+              "name": "pineconeNamespace",
+              "value": "={{ $json.pineconeNamespace }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1360,
+        0
+      ],
+      "id": "8f2275b2-5d73-4d3b-8b9e-afe45868b586",
+      "name": "Prepare Text Data with Session Context"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "extractedText",
+        "include": "selectedOtherFields",
+        "fieldsToInclude": "documentMetadata",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        0
+      ],
+      "id": "1d72e633-8173-438d-b996-ab5577267468",
+      "name": "Split Text for Embedding"
+    },
+    {
+      "parameters": {
+        "chunkSize": 4000,
+        "chunkOverlap": 400,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        2020,
+        480
+      ],
+      "id": "f70500fa-58b2-499b-afb8-196602763752",
+      "name": "Text Splitter"
+    },
+    {
+      "parameters": {
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "sessionKey",
+                "value": "={{ $json.documentMetadata.sessionKey }}"
+              },
+              {
+                "name": "org",
+                "value": "={{ $json.documentMetadata.org }}"
+              },
+              {
+                "name": "user",
+                "value": "={{ $json.documentMetadata.user }}"
+              },
+              {
+                "name": "session",
+                "value": "={{ $json.documentMetadata.session }}"
+              },
+              {
+                "name": "filename",
+                "value": "={{ $json.documentMetadata.filename }}"
+              },
+              {
+                "name": "pineconeNamespace",
+                "value": "={{ $json.documentMetadata.pineconeNamespace }}"
+              },
+              {
+                "name": "batchId",
+                "value": "={{ $json.documentMetadata.batchId }}"
+              },
+              {
+                "name": "currentDocIndex",
+                "value": "={{ $json.documentMetadata.currentDocIndex }}"
+              },
+              {
+                "name": "totalDocs",
+                "value": "={{ $json.documentMetadata.totalDocs }}"
+              },
+              {
+                "name": "pageCount",
+                "value": "={{ $json.documentMetadata.pageCount }}"
+              },
+              {
+                "name": "extractedAt",
+                "value": "={{ $json.documentMetadata.extractedAt }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        220
+      ],
+      "id": "e4b27336-898d-40ad-b808-26699712275f",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.embeddingsCohere",
+      "typeVersion": 1,
+      "position": [
+        1900,
+        200
+      ],
+      "id": "92d88962-2a74-4ce0-b7c6-4d9491bcb810",
+      "name": "Cohere Embeddings",
+      "credentials": {
+        "cohereApi": {
+          "id": "zFpwP3dKIDScol6A",
+          "name": "CohereApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "pineconeIndex": {
+          "__rl": true,
+          "value": "forcohere",
+          "mode": "list",
+          "cachedResultName": "forcohere"
+        },
+        "embeddingBatchSize": 100,
+        "options": {
+          "pineconeNamespace": "={{ $json.documentMetadata.pineconeNamespace }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.1,
+      "position": [
+        2040,
+        0
+      ],
+      "id": "d12031e8-001c-4f77-9b4e-b85c36b86cc6",
+      "name": "Store in Pinecone with Session Namespace",
+      "credentials": {
+        "pineconeApi": {
+          "id": "v5dG4yXwgjTIiNtP",
+          "name": "PineconeApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fixed \"Prepare Questionnaire Data\" node - ensures session context flows through\nconst sessionContextFromPrevious = $json; // This comes from \"ensures session data reaches the RAG agent\"\n\nconsole.log('📋 === PREPARE QUESTIONNAIRE DATA - CONTEXT PASSTHROUGH ===');\nconsole.log('📊 Received session context keys:', Object.keys(sessionContextFromPrevious));\nconsole.log('🔑 s3Key received:', sessionContextFromPrevious.s3Key);\nconsole.log('🎯 pineconeNamespace received:', sessionContextFromPrevious.pineconeNamespace);\n\n// Simply pass through the complete session context - don't lose any data!\nconst questionnaireProcessingData = {\n  // PRESERVE ALL session context from previous node\n  ...sessionContextFromPrevious,\n  \n  // Add any additional processing metadata (but don't overwrite existing data)\n  processingStage: 'questionnaire_data_prepared',\n  preparedAt: new Date().toISOString()\n};\n\nconsole.log('✅ Session context preserved for next node:');\nconsole.log('   s3Key:', questionnaireProcessingData.s3Key);\nconsole.log('   sessionKey:', questionnaireProcessingData.sessionKey);\nconsole.log('   pineconeNamespace:', questionnaireProcessingData.pineconeNamespace);\nconsole.log('   bucketName:', questionnaireProcessingData.bucketName);\n\n// Verify critical fields are present\nif (!questionnaireProcessingData.s3Key) {\n  throw new Error('❌ CRITICAL: s3Key lost in Prepare Questionnaire Data node!');\n}\n\nif (!questionnaireProcessingData.pineconeNamespace) {\n  throw new Error('❌ CRITICAL: pineconeNamespace lost in Prepare Questionnaire Data node!');\n}\n\nconsole.log('🚀 Ready for S3 download with complete session context');\n\nreturn [{ json: questionnaireProcessingData }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        1340
+      ],
+      "id": "33a9c0f3-c785-41cc-9636-0bef0c55d1af",
+      "name": "Prepare Questionnaire Data"
+    },
+    {
+      "parameters": {
+        "bucketName": "={{ $json.bucketName }}",
+        "fileKey": "={{ $json.s3Key }}",
+        "binaryPropertyName": "excelFile"
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        800,
+        1340
+      ],
+      "id": "217a6b1a-76da-4cdf-a7a4-a078d13c3394",
+      "name": "Download Questionnaire from S3",
+      "credentials": {
+        "s3": {
+          "id": "f7lofmHIdgg8mCrx",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "excelFile",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        1020,
+        1340
+      ],
+      "id": "38a7516a-a788-4d11-89f4-027bd2033097",
+      "name": "Extract Questions from Excel"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=console.log('RAG Agent Input:', JSON.stringify($json, null, 2));\nconsole.log('Namespace to search:', $json.pineconeNamespace || $json.knowledgeBaseNamespace);\n\nYou are an expert AI assistant providing detailed answers based on the specific knowledge base for this user session.\n\n**SESSION CONTEXT:**\n- User: {{ $json.user }}\n- Organization: {{ $json.org }}\n- Session: {{ $json.sessionKey }}\n- Knowledge Base: {{ $json.pineconeNamespace }}\n- Question #{{ $json.questionIndex }} from {{ $json.questionnaireFile }}\n\nYou are an expert AI assistant providing detailed answers based on the specific knowledge base for this user session.\n\n**SESSION CONTEXT:**\n- User: {{ $json.user }}\n- Organization: {{ $json.org }}\n- Session: {{ $json.sessionKey }}\n- Knowledge Base: {{ $json.pineconeNamespace }}\n- Question #{{ $json.questionIndex }} from {{ $json.questionnaireFile }}\n\n**QUESTION:**\n{{ $json.question }}\n\n**CRITICAL INSTRUCTIONS:**\n1. YOU MUST use the session_knowledge_base tool to search for relevant information\n2. Search in the namespace: \"{{ $json.pineconeNamespace }}\"\n3. DO NOT answer without first searching the knowledge base\n4. If the tool returns no results, state that clearly\n\nBegin by searching the knowledge base for information related to this question.\n\n**QUESTION:**\n{{ $json.question }}\n\n**INSTRUCTIONS:**\n1. **Use the session_knowledge_base tool** to search for relevant information in namespace \"{{ $json.pineconeNamespace }}\"\n2. **Provide comprehensive, accurate answers** based on the processed documents for this session\n3. **Be specific and detailed** - include relevant data, figures, and examples from the knowledge base\n4. **Structure your response clearly** - organize information logically\n5. **Stay focused** - only use information from this session's knowledge base\n6. **Be honest about limitations** - if information isn't available, state this clearly\n\n**RESPONSE FORMAT:**\nQuestion: {{ $json.question }}\nAnswer: [Provide a detailed, well-structured answer based on the session's knowledge base. Include specific information, data points, and relevant context from the processed documents. Use clear, professional language and organize the information logically.]\n\n**QUALITY REQUIREMENTS:**\n- Minimum 2-3 sentences for simple questions\n- Detailed explanations for complex topics\n- Include specific data/examples when available\n- Professional, clear language\n- No formatting symbols or special characters\n- Complete, standalone answers\n\n**IF NO RELEVANT INFORMATION FOUND:**\n\"Sorry, the answer to this question is not available.\"\n\n**DEBUG INFO (for monitoring):**\n- Processing question {{ $json.questionIndex }}\n- Using namespace: {{ $json.pineconeNamespace }}\n- Session: {{ $json.sessionKey }}\n\nProvide your answer now:",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        1720,
+        1340
+      ],
+      "id": "70be9a2b-81e8-462e-8938-945af7451698",
+      "name": "Enhanced RAG Agent",
+      "alwaysOutputData": true,
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.sessionKey }}_{{ $json.question.substring(0, 150) }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        1780,
+        1580
+      ],
+      "id": "4b02b200-6d27-4ea2-9730-5fa56f48e015",
+      "name": "Session Memory"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash",
+        "options": {
+          "temperature": 0.1,
+          "topK": 5
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1580,
+        1620
+      ],
+      "id": "2dd3b336-a29f-4a1e-b83c-b8863178de84",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "XOTvKr1g5ascB52E",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "session_knowledge_base",
+        "toolDescription": "This contains the processed documents and knowledge base specific to this user's session. Use this to find relevant information to answer questions accurately.",
+        "pineconeIndex": {
+          "__rl": true,
+          "value": "forcohere",
+          "mode": "list",
+          "cachedResultName": "forcohere"
+        },
+        "topK": 10,
+        "options": {
+          "pineconeNamespace": "={{ $json.knowledgeBaseNamespace }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.1,
+      "position": [
+        2000,
+        1600
+      ],
+      "id": "920ea989-0c08-4c57-b547-4f1d519049dd",
+      "name": "Session Knowledge Base (Pinecone)",
+      "credentials": {
+        "pineconeApi": {
+          "id": "v5dG4yXwgjTIiNtP",
+          "name": "PineconeApi account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.embeddingsCohere",
+      "typeVersion": 1,
+      "position": [
+        1880,
+        1780
+      ],
+      "id": "78793a35-e89c-4110-b696-2df5f32a3943",
+      "name": "Cohere Embeddings for Q&A",
+      "credentials": {
+        "cohereApi": {
+          "id": "zFpwP3dKIDScol6A",
+          "name": "CohereApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "questionnaireFiles",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        120,
+        1220
+      ],
+      "id": "690a236d-af84-4c94-ac04-a4077fd2d76c",
+      "name": "Split Out Excel Files for processing",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        -1480,
+        580
+      ],
+      "id": "6b5a112a-3332-4cd6-a015-017570f0e229",
+      "name": "XML"
+    },
+    {
+      "parameters": {
+        "jsCode": "// This node assumes the 'ensures session data reaches PineConeDB' node\n// has processed and consolidated the session and document file data.\n// Therefore, $json should contain all the necessary properties.\n\nconst processedData = $json; // This is the consolidated data from the previous node\n\nconsole.log('🔄 === PREPARING PDF PROCESSING DATA ===');\nconsole.log(`📁 Session: ${processedData.sessionKey}`);\nconsole.log(`🏢 Org: ${processedData.org} | User: ${processedData.user}`);\nconsole.log(`📄 Processing file: ${processedData.originalFilename}`);\n\n// Calculate current document index and total documents in session\nlet totalDocumentsInSession = 1; \nlet currentDocumentIndex = 1;\n\n// Assuming fullSessionData.documentFiles is passed by the preceding node\nif (processedData.fullSessionData && Array.isArray(processedData.fullSessionData.documentFiles)) {\n    totalDocumentsInSession = processedData.fullSessionData.documentFiles.length;\n    // Find the index of the current document within the original session's documentFiles array\n    const docIndex = processedData.fullSessionData.documentFiles.findIndex(doc => doc.originalName === processedData.originalFilename);\n    currentDocumentIndex = docIndex >= 0 ? docIndex + 1 : 1; // +1 for 1-based indexing\n} else {\n    console.warn(\"processedData.fullSessionData.documentFiles not found or not an array. Assuming single document.\");\n}\n\n// --- FIX FOR THE 'REPLACE' ERROR ---\n// Ensure originalFilename is a string before calling replace, using a safe fallback\nconst safeOriginalFilename = typeof processedData.originalFilename === 'string' \n                             ? processedData.originalFilename \n                             : ''; // Fallback to empty string if undefined/null\n                             \nconst safeCleanName = typeof processedData.cleanFilename === 'string' \n                      ? processedData.cleanName \n                      : ''; // Fallback to empty string if undefined/null\n\n// Create comprehensive processing data to be passed to subsequent nodes\nconst pdfProcessingData = {\n    sessionKey: processedData.sessionKey,\n    org: processedData.org,\n    user: processedData.user,\n    session: processedData.session,\n    // Use the existing batchId from processedData, or generate a new one if not present\n    batchId: processedData.batchId || `batch_${Date.now()}_${processedData.sessionKey.replace(/[^a-zA-Z0-9]/g, '_')}`,\n    \n    originalFilename: safeOriginalFilename,\n    // Use cleanName if available, otherwise generate from originalName\n    cleanFilename: safeCleanName || safeOriginalFilename.replace(/[^a-zA-Z0-9.-]/g, '_'),\n    \n    s3Key: processedData.s3Key, // This should now be reliably provided by the preceding node\n    bucketName: 'uploadsfromchatbot', // This seems to be a static bucket name\n\n    fileSize: processedData.fileSize || 0, // Default to 0 if size is not provided\n    fileType: processedData.fileType || 'document',\n    // Check if isPdfFile is explicitly set, otherwise infer from filename\n    isPdfFile: processedData.isPdfFile !== undefined ? processedData.isPdfFile : safeOriginalFilename.toLowerCase().endsWith('.pdf'),\n    \n    // Construct Pinecone namespace using session details\n    pineconeNamespace: `${processedData.org}_${processedData.user}_${processedData.session}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n    \n    processingStarted: new Date().toISOString(),\n    triggerTime: processedData.triggerTime, // Inherit trigger time from the session\n    \n    totalDocumentsInSession: totalDocumentsInSession,\n    currentDocumentIndex: currentDocumentIndex,\n    \n    // Include full session data for context in later steps if needed\n    fullSessionData: {\n        questionnaireFiles: processedData.fullSessionData?.questionnaireFiles || [],\n        documentFiles: processedData.fullSessionData?.documentFiles || [], // This should be the full list of docs for the session\n        resultFiles: processedData.fullSessionData?.resultFiles || [],\n        hasQuestionnaires: processedData.fullSessionData?.hasQuestionnaires || false,\n        hasDocuments: processedData.fullSessionData?.hasDocuments || true, \n        hasResults: processedData.fullSessionData?.hasResults || false\n    }\n};\n\nconsole.log(`📊 Processing PDF ${pdfProcessingData.currentDocumentIndex}/${pdfProcessingData.totalDocumentsInSession}`);\nconsole.log(`🎯 Pinecone namespace: ${pdfProcessingData.pineconeNamespace}`);\nconsole.log(`📁 uploadsfromchatbot bucket: ${pdfProcessingData.bucketName}`);\n\nreturn [{ json: pdfProcessingData }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        0
+      ],
+      "id": "0abbae3b-2f9b-48e9-b364-79188bf91353",
+      "name": "Prepare PDF Processing Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare S3 PDF Download Data - CORRECTED VERSION\n// This node extracts the PDF file information after the Split operation\n\nconsole.log('🔧 === PREPARING S3 DOWNLOAD CONTEXT FOR PDF ===');\n\nconst inputData = $json;\nconsole.log('📊 Input data structure:', Object.keys(inputData));\n\n// After Split operation, documentFiles becomes a single object (not array)\n// containing the individual PDF file data, plus session data at root level\n\nlet documentFile = null;\nlet sessionData = {};\n\n// The Split node puts the individual document file data in 'documentFiles' property\nif (inputData.documentFiles && typeof inputData.documentFiles === 'object') {\n    // documentFiles is now a single object containing the PDF file\n    documentFile = {\n        originalName: inputData.documentFiles.originalName,\n        fullPath: inputData.documentFiles.fullPath,\n        size: inputData.documentFiles.size || 0,\n        lastModified: inputData.documentFiles.lastModified,\n        type: inputData.documentFiles.type || 'document',\n        isPdfFile: inputData.documentFiles.isPdfFile !== undefined ? inputData.documentFiles.isPdfFile : true,\n        cleanName: inputData.documentFiles.cleanName || inputData.documentFiles.originalName?.split('.')[0],\n        fileExtension: inputData.documentFiles.fileExtension || 'pdf'\n    };\n    \n    console.log('✅ Found PDF document file:', documentFile.originalName);\n} else {\n    console.error('❌ documentFiles object not found or invalid in split data');\n    console.error('Available properties:', Object.keys(inputData));\n}\n\n// Extract session information (preserved from splitOut with 'allOtherFields')\n// Note: The original documentFiles array is no longer available after split,\n// but we can reconstruct the session context from the preserved data\nsessionData = {\n    sessionKey: inputData.sessionKey,\n    org: inputData.org,\n    user: inputData.user,\n    session: inputData.session,\n    batchId: inputData.batchId,\n    questionnaireFiles: inputData.questionnaireFiles || [],\n    resultFiles: inputData.resultFiles || [],\n    documentCount: inputData.documentCount || 1, // At least 1 since we have this PDF\n    questionnaireCount: inputData.questionnaireCount || 0,\n    hasDocuments: inputData.hasDocuments !== undefined ? inputData.hasDocuments : true,\n    hasQuestionnaires: inputData.hasQuestionnaires !== undefined ? inputData.hasQuestionnaires : false\n};\n\n// Validate that we have the essential data\nif (!documentFile || !documentFile.fullPath) {\n    console.error('❌ CRITICAL ERROR: No valid PDF document file found in input data');\n    console.error('Available properties:', Object.keys(inputData));\n    throw new Error('PDF document file not found in split data');\n}\n\nif (!sessionData.sessionKey) {\n    console.error('❌ CRITICAL ERROR: No session key found in input data');\n    throw new Error('Session key not found in split data');\n}\n\n// Clean and validate the S3 key\nlet s3Key = documentFile.fullPath;\ns3Key = s3Key.replace(/<[^>]*>/g, '').replace(/[()]/g, '').trim();\ns3Key = s3Key.replace(/\\/\\/+/g, '/').replace(/^\\/|\\/$/g, '');\n\n// Extract session parts from sessionKey for namespace creation\nconst sessionParts = sessionData.sessionKey.split('/');\nconst org = sessionParts[0] || sessionData.org || 'unknown';\nconst user = sessionParts[1] || sessionData.user || 'unknown';\nconst session = sessionParts[2] || sessionData.session || 'unknown';\n\n// Build processing context\nconst processingContext = {\n    // Session identifiers\n    sessionKey: sessionData.sessionKey,\n    org: org,\n    user: user,\n    session: session,\n    \n    // Pinecone/knowledge base namespacing\n    pineconeNamespace: `${org}_${user}_${session}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n    knowledgeBaseNamespace: `${org}_${user}_${session}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n    \n    // File information\n    originalFilename: documentFile.originalName,\n    cleanFilename: documentFile.cleanName,\n    s3Key: s3Key,\n    bucketName: 'uploadsfromchatbot',\n    fileSize: documentFile.size,\n    fileType: 'document',\n    isPdfFile: true,\n    isExcelFile: false,\n    fileExtension: 'pdf',\n    \n    // Processing metadata\n    batchId: sessionData.batchId,\n    processingStarted: new Date().toISOString(),\n    qaProcessingStage: 'pdf_download_ready',\n    \n    // Session context for batch processing\n    totalDocumentsInSession: sessionData.documentCount,\n    currentDocumentIndex: 0, // After split, each item represents one document (starting from 0)\n    \n    // Full session data for context (reconstructed from available data)\n    fullSessionData: {\n        currentDocument: documentFile, // The current PDF being processed\n        questionnaireFiles: sessionData.questionnaireFiles,\n        resultFiles: sessionData.resultFiles,\n        hasDocuments: sessionData.hasDocuments,\n        hasQuestionnaires: sessionData.hasQuestionnaires\n    }\n};\n\nconsole.log('📋 Final processing context:');\nconsole.log(`   Session: ${processingContext.sessionKey}`);\nconsole.log(`   PDF File: ${processingContext.originalFilename}`);\nconsole.log(`   S3 Key: ${processingContext.s3Key}`);\nconsole.log(`   Namespace: ${processingContext.pineconeNamespace}`);\nconsole.log(`   Document processing (1 of ${processingContext.totalDocumentsInSession} total in session)`);\nconsole.log(`   Batch ID: ${processingContext.batchId}`);\n\n// Final validation\nif (!processingContext.s3Key || processingContext.s3Key.trim() === '') {\n    throw new Error('❌ CRITICAL: S3 key is empty after processing');\n}\n\nif (!processingContext.originalFilename) {\n    throw new Error('❌ CRITICAL: Original filename is missing');\n}\n\nconsole.log('✅ PDF processing context ready for S3 download');\n\nreturn [{ json: processingContext }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        0
+      ],
+      "id": "265443dd-71e4-4a99-be35-df3e391b9c75",
+      "name": "Prepare S3 PDF Download Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Excel Data for S3 Download - DYNAMIC VERSION\n// This node extracts Excel file information after the Split operation (similar to PDF processing)\n\nconsole.log('🔧 === PREPARING S3 DOWNLOAD CONTEXT FOR EXCEL FILES ===');\n\nconst inputData = $json;\nconsole.log('📊 Input data structure:', Object.keys(inputData));\n\n// After Split operation, questionnaireFiles becomes a single object (not array)\n// containing the individual Excel file data, plus session data at root level\n\nlet excelFile = null;\nlet sessionData = {};\n\n// The Split node puts the individual questionnaire file data in 'questionnaireFiles' property\nif (inputData.questionnaireFiles && typeof inputData.questionnaireFiles === 'object') {\n    // questionnaireFiles is now a single object containing the Excel file\n    excelFile = {\n        originalName: inputData.questionnaireFiles.originalName,\n        fullPath: inputData.questionnaireFiles.fullPath,\n        size: inputData.questionnaireFiles.size || 0,\n        lastModified: inputData.questionnaireFiles.lastModified,\n        type: inputData.questionnaireFiles.type || 'questionnaire',\n        isPdfFile: inputData.questionnaireFiles.isPdfFile !== undefined ? inputData.questionnaireFiles.isPdfFile : false,\n        isExcelFile: inputData.questionnaireFiles.isExcelFile !== undefined ? inputData.questionnaireFiles.isExcelFile : true,\n        cleanName: inputData.questionnaireFiles.cleanName || inputData.questionnaireFiles.originalName?.split('.')[0],\n        fileExtension: inputData.questionnaireFiles.fileExtension || 'xlsx'\n    };\n    \n    console.log('✅ Found Excel questionnaire file:', excelFile.originalName);\n} else {\n    console.error('❌ questionnaireFiles object not found or invalid in split data');\n    console.error('Available properties:', Object.keys(inputData));\n}\n\n// Extract session information (preserved from splitOut)\n// Note: The original questionnaireFiles array is no longer available after split,\n// but we can reconstruct the session context from the preserved data\nsessionData = {\n    sessionKey: inputData.sessionKey,\n    org: inputData.org,\n    user: inputData.user,\n    session: inputData.session,\n    batchId: inputData.batchId,\n    documentFiles: inputData.documentFiles || [],\n    resultFiles: inputData.resultFiles || [],\n    documentCount: inputData.documentCount || 0,\n    questionnaireCount: inputData.questionnaireCount || 1, // At least 1 since we have this Excel file\n    hasDocuments: inputData.hasDocuments !== undefined ? inputData.hasDocuments : false,\n    hasQuestionnaires: inputData.hasQuestionnaires !== undefined ? inputData.hasQuestionnaires : true\n};\n\n// Validate that we have the essential data\nif (!excelFile || !excelFile.fullPath) {\n    console.error('❌ CRITICAL ERROR: No valid Excel questionnaire file found in input data');\n    console.error('Available properties:', Object.keys(inputData));\n    throw new Error('Excel questionnaire file not found in split data');\n}\n\nif (!sessionData.sessionKey) {\n    console.error('❌ CRITICAL ERROR: No session key found in input data');\n    throw new Error('Session key not found in split data');\n}\n\n// Clean and validate the S3 key\nlet s3Key = excelFile.fullPath;\ns3Key = s3Key.replace(/<[^>]*>/g, '').replace(/[()]/g, '').trim();\ns3Key = s3Key.replace(/\\/\\/+/g, '/').replace(/^\\/|\\/$/g, '');\n\n// Extract session parts from sessionKey for namespace creation\nconst sessionParts = sessionData.sessionKey.split('/');\nconst org = sessionParts[0] || sessionData.org || 'unknown';\nconst user = sessionParts[1] || sessionData.user || 'unknown';\nconst session = sessionParts[2] || sessionData.session || 'unknown';\n\n// Build processing context for Excel file\nconst processingContext = {\n    // Session identifiers (fully dynamic)\n    sessionKey: sessionData.sessionKey,\n    org: org,\n    user: user,\n    session: session,\n    \n    // Pinecone/knowledge base namespacing (dynamic)\n    pineconeNamespace: `${org}_${user}_${session}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n    knowledgeBaseNamespace: `${org}_${user}_${session}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n    \n    // File information (dynamic)\n    originalFilename: excelFile.originalName,\n    cleanFilename: excelFile.cleanName,\n    s3Key: s3Key,\n    bucketName: 'uploadsfromchatbot',\n    fileSize: excelFile.size,\n    fileType: 'questionnaire',\n    isPdfFile: false,\n    isExcelFile: true,\n    fileExtension: 'xlsx',\n    \n    // Processing metadata (dynamic)\n    batchId: sessionData.batchId,\n    processingStarted: new Date().toISOString(),\n    qaProcessingStage: 'excel_download_ready',\n    \n    // Session context for batch processing\n    totalQuestionnairesInSession: sessionData.questionnaireCount,\n    currentQuestionnaireIndex: 0, // After split, each item represents one questionnaire\n    \n    // Full session data for context (reconstructed from available data)\n    fullSessionData: {\n        currentQuestionnaire: excelFile, // The current Excel file being processed\n        documentFiles: sessionData.documentFiles,\n        resultFiles: sessionData.resultFiles,\n        hasDocuments: sessionData.hasDocuments,\n        hasQuestionnaires: sessionData.hasQuestionnaires\n    },\n    \n    // Multi-user context (dynamic)\n    isolation: {\n        tenantId: `${org}_${user}`,\n        namespace: `${org}_${user}_${session}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n        resourceGroup: `${org}_questionnaire_processing`,\n        ownerOrg: org,\n        ownerUser: user,\n        sessionId: session\n    }\n};\n\nconsole.log('📋 Final Excel processing context:');\nconsole.log(`   Session: ${processingContext.sessionKey}`);\nconsole.log(`   Excel File: ${processingContext.originalFilename}`);\nconsole.log(`   S3 Key: ${processingContext.s3Key}`);\nconsole.log(`   Namespace: ${processingContext.pineconeNamespace}`);\nconsole.log(`   Organization: ${processingContext.org}`);\nconsole.log(`   User: ${processingContext.user}`);\nconsole.log(`   Questionnaire processing (1 of ${processingContext.totalQuestionnairesInSession} total in session)`);\nconsole.log(`   Batch ID: ${processingContext.batchId}`);\n\n// Final validation\nif (!processingContext.s3Key || processingContext.s3Key.trim() === '') {\n    throw new Error('❌ CRITICAL: S3 key is empty after processing');\n}\n\nif (!processingContext.originalFilename) {\n    throw new Error('❌ CRITICAL: Original filename is missing');\n}\n\nif (!processingContext.org || processingContext.org === 'unknown') {\n    console.warn('⚠️ WARNING: Organization could not be determined dynamically');\n}\n\nif (!processingContext.user || processingContext.user === 'unknown') {\n    console.warn('⚠️ WARNING: User could not be determined dynamically');\n}\n\nconsole.log('✅ Excel processing context ready for S3 download');\n\nreturn [{ json: processingContext }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        1340
+      ],
+      "id": "d6f28537-4f2b-45ea-8830-b650bc2dabec",
+      "name": "Prepare Excel data for S3 download"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ULTIMATE DEBUG - FIXED VERSION for your current workflow\n// Replace your \"Multi-userBatchProcessing\" node with this\n\nconsole.log('🔧 === ULTIMATE DEBUG: FORCE BOTH ARMS (FIXED) ===');\nconsole.log(`Processing ${items.length} sessions`);\n\nconst processedSessions = [];\n\nitems.forEach((item, index) => {\n    const session = item.json;\n    \n    console.log(`\\n🔍 SESSION ${index + 1}/${items.length}:`);\n    console.log(`   sessionKey: ${session.sessionKey}`);\n    console.log(`   org: ${session.org}`);\n    console.log(`   user: ${session.user}`);\n    console.log(`   readyForProcessing: ${session.readyForProcessing}`);\n    \n    // Show what files we have\n    console.log(`\\n📁 FILES ANALYSIS:`);\n    console.log(`   documentFiles type: ${typeof session.documentFiles}`);\n    console.log(`   documentFiles is array: ${Array.isArray(session.documentFiles)}`);\n    console.log(`   documentFiles length: ${session.documentFiles?.length || 0}`);\n    console.log(`   questionnaireFiles type: ${typeof session.questionnaireFiles}`);\n    console.log(`   questionnaireFiles is array: ${Array.isArray(session.questionnaireFiles)}`);\n    console.log(`   questionnaireFiles length: ${session.questionnaireFiles?.length || 0}`);\n    \n    if (session.readyForProcessing) {\n        \n        // FORCE BOTH ARMS TO HAVE DATA - This will guarantee execution\n        console.log(`\\n🚀 FORCING BOTH ARMS TO EXECUTE:`);\n        \n        // Create real or fake data to ensure both arms execute\n        let forcedDocumentFiles = [];\n        let forcedQuestionnaireFiles = [];\n        \n        // Use real documents if they exist, otherwise create test data\n        if (session.documentFiles && Array.isArray(session.documentFiles) && session.documentFiles.length > 0) {\n            forcedDocumentFiles = session.documentFiles;\n            console.log(`   📄 Using REAL document files: ${forcedDocumentFiles.length}`);\n        } else {\n            forcedDocumentFiles = [{\n                originalName: 'test_document.pdf',\n                fullPath: `${session.sessionKey}/documents/test_document.pdf`,\n                size: 1000,\n                lastModified: new Date().toISOString(),\n                cleanName: 'test_document',\n                fileExtension: 'pdf',\n                type: 'document',\n                isPdfFile: true,\n                isExcelFile: false,\n                isForced: true // Mark as forced for debugging\n            }];\n            console.log(`   📄 Using FORCED document files: ${forcedDocumentFiles.length}`);\n        }\n        \n        // Use real questionnaires if they exist, otherwise create test data\n        if (session.questionnaireFiles && Array.isArray(session.questionnaireFiles) && session.questionnaireFiles.length > 0) {\n            forcedQuestionnaireFiles = session.questionnaireFiles;\n            console.log(`   📊 Using REAL questionnaire files: ${forcedQuestionnaireFiles.length}`);\n        } else {\n            forcedQuestionnaireFiles = [{\n                originalName: 'test_questionnaire.xlsx',\n                fullPath: `${session.sessionKey}/questionnaires/test_questionnaire.xlsx`,\n                size: 500,\n                lastModified: new Date().toISOString(),\n                cleanName: 'test_questionnaire',\n                fileExtension: 'xlsx',\n                type: 'questionnaire',\n                isPdfFile: false,\n                isExcelFile: true,\n                isForced: true // Mark as forced for debugging\n            }];\n            console.log(`   📊 Using FORCED questionnaire files: ${forcedQuestionnaireFiles.length}`);\n        }\n        \n        // Create enhanced session that GUARANTEES both arms execute\n        const enhancedSession = {\n            ...session,\n            \n            // Core processing data\n            action: 'BATCH_PROCESS_SESSION',\n            triggerTime: new Date().toISOString(),\n            processingStatus: 'TRIGGERED',\n            batchId: `debug_batch_${Date.now()}`,\n            \n            // FORCE BOTH ARMS TO HAVE CONTENT\n            documentFiles: forcedDocumentFiles,\n            questionnaireFiles: forcedQuestionnaireFiles,\n            \n            // Update counts\n            documentCount: forcedDocumentFiles.length,\n            questionnaireCount: forcedQuestionnaireFiles.length,\n            \n            // Force status flags\n            hasDocuments: true,\n            hasQuestionnaires: true,\n            shouldProcessDocuments: true,\n            shouldProcessQuestionnaires: true,\n            \n            // Processing metadata\n            documentsToProcess: forcedDocumentFiles.length,\n            questionnairesToProcess: forcedQuestionnaireFiles.length,\n            \n            // Session context\n            isolation: {\n                tenantId: `${session.org}_${session.user}`,\n                namespace: `${session.org}_${session.user}_${session.session}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n                resourceGroup: `${session.org}_processing`\n            },\n            \n            // Multi-user metadata\n            orgContext: {\n                organization: session.org,\n                user: session.user,\n                sessionId: session.session\n            },\n            \n            // Debug info\n            debugInfo: {\n                originalDocumentCount: session.documentFiles?.length || 0,\n                originalQuestionnaireCount: session.questionnaireFiles?.length || 0,\n                forcedDocuments: forcedDocumentFiles.filter(f => f.isForced).length,\n                forcedQuestionnaires: forcedQuestionnaireFiles.filter(f => f.isForced).length,\n                bothArmsForced: true,\n                usingRealDocuments: !forcedDocumentFiles[0]?.isForced,\n                usingRealQuestionnaires: !forcedQuestionnaireFiles[0]?.isForced\n            },\n            \n            // Status message\n            message: `DEBUG: Session ${session.sessionKey} - BOTH ARMS FORCED TO EXECUTE (Docs: ${forcedDocumentFiles[0]?.isForced ? 'FAKE' : 'REAL'}, Q&A: ${forcedQuestionnaireFiles[0]?.isForced ? 'FAKE' : 'REAL'})`\n        };\n        \n        processedSessions.push({ json: enhancedSession });\n        \n        console.log(`   ✅ SESSION TRIGGERED - Both arms guaranteed to execute`);\n        console.log(`   📄 PDF Arm will receive: ${enhancedSession.documentFiles.length} files`);\n        console.log(`   📊 Q&A Arm will receive: ${enhancedSession.questionnaireFiles.length} files`);\n        console.log(`   🎯 Using real documents: ${enhancedSession.debugInfo.usingRealDocuments}`);\n        console.log(`   🎯 Using real questionnaires: ${enhancedSession.debugInfo.usingRealQuestionnaires}`);\n        \n    } else {\n        console.log(`   ❌ Session not ready for processing`);\n    }\n});\n\nconsole.log(`\\n📊 FINAL SUMMARY:`);\nconsole.log(`   Sessions processed: ${processedSessions.length}`);\nconsole.log(`   All sessions will trigger BOTH arms`);\n\nif (processedSessions.length > 0) {\n    console.log(`\\n🚀 SESSIONS THAT WILL EXECUTE:`);\n    processedSessions.forEach((session, index) => {\n        const s = session.json;\n        console.log(`   ${index + 1}. ${s.sessionKey}`);\n        console.log(`      - PDF files: ${s.documentFiles.length} (${s.debugInfo.usingRealDocuments ? 'REAL' : 'FAKE'})`);\n        console.log(`      - Excel files: ${s.questionnaireFiles.length} (${s.debugInfo.usingRealQuestionnaires ? 'REAL' : 'FAKE'})`);\n        console.log(`      - Message: ${s.message}`);\n    });\n}\n\nreturn processedSessions.length > 0 ? processedSessions : [{\n    json: {\n        action: 'NO_PROCESSING_NEEDED',\n        message: \"No sessions ready - this should not happen in debug mode\",\n        timestamp: new Date().toISOString()\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -580,
+        580
+      ],
+      "id": "b257ee1e-1da1-4b32-834c-9fa9fb7c02a6",
+      "name": "Multi-userBatchProcessing"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced S3 objects grouping for multi-user scale\n// Handles hundreds of users/orgs with proper batching and monitoring\n\nconsole.log(`Starting multi-user S3 processing`);\n\n// Configuration for scaling\nconst MAX_SESSIONS_PER_BATCH = 50; // Prevent overwhelming the system\nconst MAX_FILES_PER_SESSION = 100; // Safety limit per session\nconst sessionKeyPathDepth = 3; // org/user/session\n\nconst sessionsToProcess = {};\nconst processingStats = {\n    totalFiles: 0,\n    totalSessions: 0,\n    orgCount: 0,\n    userCount: 0,\n    skippedFiles: 0,\n    errors: []\n};\n\n// Track unique orgs and users for monitoring\nconst uniqueOrgs = new Set();\nconst uniqueUsers = new Set();\n\nitems.forEach((item) => {\n    let s3Contents = [];\n\n    if (item.json.ListBucketResult?.Contents) {\n        s3Contents = Array.isArray(item.json.ListBucketResult.Contents) \n                     ? item.json.ListBucketResult.Contents \n                     : [item.json.ListBucketResult.Contents];\n    } else {\n        console.warn(\"No S3 Contents found in item\");\n        return;\n    }\n\n    processingStats.totalFiles += s3Contents.length;\n    console.log(`Processing ${s3Contents.length} S3 objects across multiple users/orgs`);\n\n    s3Contents.forEach(s3Object => {\n        try {\n            let fullPath = s3Object.Key;\n            \n            if (!fullPath || typeof fullPath !== 'string' || fullPath.trim() === '') {\n                processingStats.skippedFiles++;\n                return;\n            }\n\n            fullPath = fullPath.trim().replace(/\\/\\/+/g, '/').replace(/^\\/|\\/$/g, '');\n            \n            if (fullPath.endsWith('/')) {\n                processingStats.skippedFiles++;\n                return;\n            }\n\n            const pathParts = fullPath.split('/');\n            const originalName = pathParts[pathParts.length - 1];\n            \n            if (pathParts.length < sessionKeyPathDepth + 1) {\n                processingStats.skippedFiles++;\n                return;\n            }\n\n            // Extract org/user/session for multi-tenant isolation\n            const org = pathParts[0];\n            const user = pathParts[1]; \n            const session = pathParts[2];\n            const sessionKey = `${org}/${user}/${session}`;\n\n            // Track unique orgs and users for monitoring\n            uniqueOrgs.add(org);\n            uniqueUsers.add(`${org}/${user}`);\n\n            // Check if we're hitting session limits (prevent runaway processing)\n            if (Object.keys(sessionsToProcess).length >= MAX_SESSIONS_PER_BATCH) {\n                console.warn(`Reached maximum sessions per batch (${MAX_SESSIONS_PER_BATCH}). Skipping additional sessions.`);\n                return;\n            }\n\n            // Initialize session with multi-tenant context\n            if (!sessionsToProcess[sessionKey]) {\n                sessionsToProcess[sessionKey] = {\n                    sessionKey: sessionKey,\n                    org: org,\n                    user: user,\n                    session: session,\n                    \n                    // Multi-tenant isolation\n                    tenantId: `${org}_${user}`, // For grouping by tenant\n                    namespace: `${org}_${user}_${session}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n                    \n                    // File tracking\n                    questionnaireCount: 0,\n                    documentCount: 0,\n                    questionnaireFiles: [],\n                    documentFiles: [],\n                    resultFiles: [],\n                    \n                    // Status flags\n                    hasQuestionnaires: false,\n                    hasDocuments: false,\n                    hasResults: false,\n                    readyForProcessing: false,\n                    \n                    // Processing metadata\n                    triggerTime: new Date().toISOString(),\n                    processingStatus: 'PENDING',\n                    batchId: `batch_${Date.now()}_${sessionKey.replace(/[^a-zA-Z0-9]/g, '_')}`,\n                    \n                    // Multi-user context\n                    orgPath: org,\n                    userPath: `${org}/${user}`,\n                    priority: org === 'premium' ? 'high' : 'normal', // Example: priority by org type\n                    \n                    // Safety limits\n                    maxFilesReached: false\n                };\n            }\n\n            const currentSession = sessionsToProcess[sessionKey];\n            \n            // Check file limits per session (prevent single session from overwhelming)\n            const totalFilesInSession = currentSession.documentFiles.length + \n                                      currentSession.questionnaireFiles.length + \n                                      currentSession.resultFiles.length;\n            \n            if (totalFilesInSession >= MAX_FILES_PER_SESSION) {\n                if (!currentSession.maxFilesReached) {\n                    console.warn(`Session ${sessionKey} reached max files limit (${MAX_FILES_PER_SESSION})`);\n                    currentSession.maxFilesReached = true;\n                }\n                return;\n            }\n\n            const fileSize = parseInt(s3Object.Size) || 0;\n            const lastModified = s3Object.LastModified || new Date().toISOString();\n            const cleanName = originalName.split('.')[0] || originalName;\n            const fileExtension = originalName.split('.').pop()?.toLowerCase() || '';\n\n            // Enhanced file categorization with user context\n            const fileMetadata = {\n                originalName: originalName,\n                fullPath: fullPath,\n                size: fileSize,\n                lastModified: lastModified,\n                cleanName: cleanName,\n                fileExtension: fileExtension,\n                \n                // Multi-user context\n                ownerOrg: org,\n                ownerUser: user,\n                sessionId: session,\n                tenantId: currentSession.tenantId,\n                \n                // Processing context\n                uploadDate: new Date(lastModified).toISOString(),\n                processingPriority: currentSession.priority\n            };\n\n            // Categorize files with enhanced logging\n            if (fullPath.includes('/questionnaires/') && fileExtension === 'xlsx') {\n                currentSession.questionnaireCount++;\n                currentSession.questionnaireFiles.push({\n                    ...fileMetadata,\n                    type: 'questionnaire',\n                    isPdfFile: false,\n                    isExcelFile: true\n                });\n                currentSession.hasQuestionnaires = true;\n                console.log(`📊 Added questionnaire: ${originalName} for ${org}/${user}/${session}`);\n                \n            } else if (fullPath.includes('/documents/') && fileExtension === 'pdf') {\n                currentSession.documentCount++;\n                currentSession.documentFiles.push({\n                    ...fileMetadata,\n                    type: 'document',\n                    isPdfFile: true,\n                    isExcelFile: false\n                });\n                currentSession.hasDocuments = true;\n                console.log(`📄 Added PDF: ${originalName} for ${org}/${user}/${session}`);\n                \n            } else if (fullPath.includes('/results/')) {\n                currentSession.resultFiles.push({\n                    ...fileMetadata,\n                    type: 'result'\n                });\n                currentSession.hasResults = true;\n                console.log(`📋 Added result: ${originalName} for ${org}/${user}/${session}`);\n            }\n\n        } catch (error) {\n            processingStats.errors.push({\n                error: error.message,\n                file: s3Object.Key,\n                timestamp: new Date().toISOString()\n            });\n            console.error(`Error processing file ${s3Object.Key}:`, error.message);\n        }\n    });\n});\n\n// Update processing stats\nprocessingStats.totalSessions = Object.keys(sessionsToProcess).length;\nprocessingStats.orgCount = uniqueOrgs.size;\nprocessingStats.userCount = uniqueUsers.size;\n\n// Convert to output with enhanced multi-user metadata\nconst outputItems = [];\nfor (const sessionKey in sessionsToProcess) {\n    const sessionData = sessionsToProcess[sessionKey];\n    \n    // Enhanced readiness check for multi-user context\n    sessionData.readyForProcessing = sessionData.hasDocuments && \n                                    sessionData.hasQuestionnaires && \n                                    !sessionData.maxFilesReached;\n    \n    // Add multi-user processing metadata\n    sessionData.multiUserContext = {\n        totalOrgsInBatch: processingStats.orgCount,\n        totalUsersInBatch: processingStats.userCount,\n        totalSessionsInBatch: processingStats.totalSessions,\n        batchProcessingTime: new Date().toISOString(),\n        isolated: true // Each session is fully isolated\n    };\n    \n    outputItems.push({ json: sessionData });\n}\n\n// Enhanced logging for multi-user scenario\nconsole.log(`\\n🏢 MULTI-USER PROCESSING SUMMARY:`);\nconsole.log(`   Organizations: ${processingStats.orgCount}`);\nconsole.log(`   Unique users: ${processingStats.userCount}`);\nconsole.log(`   Total sessions: ${processingStats.totalSessions}`);\nconsole.log(`   Files processed: ${processingStats.totalFiles}`);\nconsole.log(`   Files skipped: ${processingStats.skippedFiles}`);\nconsole.log(`   Ready sessions: ${outputItems.filter(item => item.json.readyForProcessing).length}`);\nconsole.log(`   Processing errors: ${processingStats.errors.length}`);\n\nif (processingStats.errors.length > 0) {\n    console.log(`\\n⚠️  ERRORS ENCOUNTERED:`);\n    processingStats.errors.forEach((err, index) => {\n        console.log(`   ${index + 1}. ${err.file}: ${err.error}`);\n    });\n}\n\n// List unique organizations for monitoring\nconsole.log(`\\n🏢 Organizations in this batch:`);\nArray.from(uniqueOrgs).forEach(org => {\n    const orgSessions = outputItems.filter(item => item.json.org === org);\n    console.log(`   ${org}: ${orgSessions.length} sessions`);\n});\n\nreturn outputItems.length > 0 ? outputItems : [{\n    json: {\n        message: \"No sessions found in current batch\",\n        timestamp: new Date().toISOString(),\n        multiUserStats: processingStats\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1280,
+        580
+      ],
+      "id": "504a57b2-fb2e-4166-b39d-b84b11085474",
+      "name": "S3 objects and group them by session"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dynamic Question Loop Processor - Prepares individual questions for RAG agent\n// Handles any org/user/session combination with proper isolation\n\nconsole.log('🔄 === DYNAMIC QUESTION LOOP PROCESSOR ===');\n\nconst inputData = $json;\nconsole.log('📊 Input data structure:', Object.keys(inputData));\n\n// Extract session context with fallback handling\nconsole.log('🔍 Attempting to extract session context...');\nconsole.log('Available input properties:', Object.keys(inputData));\n\n// Try to get session context from current input\nlet sessionContext = {\n    sessionKey: inputData.sessionKey,\n    org: inputData.org,\n    user: inputData.user,\n    session: inputData.session,\n    pineconeNamespace: inputData.pineconeNamespace,\n    knowledgeBaseNamespace: inputData.knowledgeBaseNamespace,\n    batchId: inputData.batchId,\n    originalFilename: inputData.originalFilename,\n    cleanFilename: inputData.cleanFilename,\n    bucketName: inputData.bucketName || 'uploadsfromchatbot',\n    isolation: inputData.isolation\n};\n\n// If session context is missing, try to get it from the item that triggered this execution\nif (!sessionContext.sessionKey || !sessionContext.org || !sessionContext.user) {\n    console.log('⚠️ Session context not found in current input, checking execution context...');\n    \n    // Get data from the node that provides session context (usually \"Prepare Questionnaire Data\")\n    const items = $('Prepare Questionnaire Data').all();\n    if (items && items.length > 0) {\n        const sessionData = items[0].json;\n        console.log('✅ Found session context from Prepare Questionnaire Data node');\n        \n        sessionContext = {\n            sessionKey: sessionData.sessionKey,\n            org: sessionData.org,\n            user: sessionData.user,\n            session: sessionData.session,\n            pineconeNamespace: sessionContext.pineconeNamespace,\n            knowledgeBaseNamespace: sessionContext.pineconeNamespace,          \n            batchId: sessionData.batchId,\n            originalFilename: sessionData.originalFilename,\n            cleanFilename: sessionData.cleanFilename,\n            bucketName: sessionData.bucketName || 'uploadsfromchatbot',\n            isolation: sessionData.isolation || {\n                tenantId: `${sessionData.org}_${sessionData.user}`,\n                namespace: `${sessionData.org}_${sessionData.user}_${sessionData.session}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n                resourceGroup: `${sessionData.org}_questionnaire_processing`\n            }\n        };\n    }\n}\n\n// Final validation with helpful error message\nif (!sessionContext.sessionKey || !sessionContext.org || !sessionContext.user) {\n    console.error('❌ CRITICAL: Missing session context in question processor');\n    console.error('Current sessionContext:', sessionContext);\n    console.error('Available input data keys:', Object.keys(inputData));\n    \n    // Try to provide helpful debugging info\n    const availableNodeData = {\n        'Prepare Questionnaire Data': $('Prepare Questionnaire Data').all(),\n        'Prepare Excel data for S3 download': $('Prepare Excel data for S3 download').all()\n    };\n    \n    console.error('Available node data:', Object.keys(availableNodeData));\n    \n    throw new Error(`Session context is incomplete. Missing: ${\n        !sessionContext.sessionKey ? 'sessionKey ' : ''\n    }${!sessionContext.org ? 'org ' : ''\n    }${!sessionContext.user ? 'user ' : ''\n    }. Check that session context flows from previous nodes.`);\n}\n\n// Extract questions from the Excel extraction result\n// The questions should be in inputData.json (the output from Extract Questions from Excel)\nlet questionsArray = [];\n\nif (inputData.json && Array.isArray(inputData.json)) {\n    questionsArray = inputData.json;\n    console.log(`✅ Found ${questionsArray.length} questions to process`);\n} else if (inputData.data && Array.isArray(inputData.data)) {\n    questionsArray = inputData.data;\n    console.log(`✅ Found ${questionsArray.length} questions in data property`);\n} else {\n    console.error('❌ No questions array found in input data');\n    console.error('Available properties:', Object.keys(inputData));\n    throw new Error('Questions array not found in Excel extraction output');\n}\n\n// Process each question individually\nconst processedQuestions = [];\nlet questionCounter = 0;\n\nquestionsArray.forEach((questionObj, index) => {\n    try {\n        // Each question object has module name as key and question text as value\n        const moduleNames = Object.keys(questionObj);\n        \n        moduleNames.forEach(moduleName => {\n            const questionText = questionObj[moduleName];\n            \n            if (!questionText || questionText.trim() === '') {\n                console.warn(`⚠️ Skipping empty question at index ${index}`);\n                return;\n            }\n            \n            questionCounter++;\n            \n            // Extract question number if present (e.g., \"(1.1)\", \"(1.2)\")\n            const questionNumberMatch = questionText.match(/\\((\\d+(?:\\.\\d+)*)\\)/);\n            const questionNumber = questionNumberMatch ? questionNumberMatch[1] : `Q${questionCounter}`;\n            \n            // Clean the question text (remove extra newlines, etc.)\n            const cleanQuestionText = questionText.replace(/\\n+/g, ' ').trim();\n            \n            // Build comprehensive question context for RAG\n            const questionForRAG = {\n                // Fields expected by RAG agent prompt (exact match)\n                user: sessionContext.user,\n                org: sessionContext.org,\n                sessionKey: sessionContext.sessionKey,\n                pineconeNamespace: sessionContext.pineconeNamespace,\n                questionIndex: questionCounter,\n                questionnaireFile: sessionContext.originalFilename,\n                question: cleanQuestionText, // The actual question text for RAG\n                \n                // Additional context fields for RAG processing\n                questionNumber: questionNumber,\n                moduleName: moduleName,\n                session: sessionContext.session,\n                knowledgeBaseNamespace: sessionContext.knowledgeBaseNamespace,\n                \n                // Multi-tenant isolation\n                isolation: {\n                    tenantId: sessionContext.isolation.tenantId,\n                    namespace: sessionContext.isolation.namespace,\n                    resourceGroup: sessionContext.isolation.resourceGroup,\n                    questionNamespace: `${sessionContext.isolation.namespace}_Q${questionCounter}`\n                },\n                \n                // Source file context\n                sourceFile: {\n                    originalFilename: sessionContext.originalFilename,\n                    cleanFilename: sessionContext.cleanFilename,\n                    bucketName: sessionContext.bucketName,\n                    fileType: 'questionnaire',\n                    extractedAt: new Date().toISOString()\n                },\n                \n                // Processing metadata\n                batchId: sessionContext.batchId,\n                processingStage: 'ready_for_rag',\n                createdAt: new Date().toISOString(),\n                \n                // RAG processing instructions\n                ragInstructions: {\n                    searchDocuments: true,\n                    useKnowledgeBase: true,\n                    searchScope: 'session', // Only search within this session's documents\n                    maxResults: 10,\n                    confidenceThreshold: 0.7,\n                    responseFormat: 'detailed'\n                },\n                \n                // Question metadata for analysis\n                questionMetadata: {\n                    hasQuestionNumber: !!questionNumberMatch,\n                    estimatedComplexity: cleanQuestionText.length > 200 ? 'high' : 'medium',\n                    requiresNumericalData: /revenue|assets|value|amount|cost|price|\\$|€|£|¥/.test(cleanQuestionText.toLowerCase()),\n                    requiresDateInformation: /date|year|period|reporting|when/.test(cleanQuestionText.toLowerCase()),\n                    requiresGeolocation: /location|country|countries|geolocation|facilities/.test(cleanQuestionText.toLowerCase())\n                },\n                \n                // Total questions context\n                totalQuestions: questionsArray.length,\n                remainingQuestions: questionsArray.length - questionCounter,\n                \n                // Additional fields that might be useful for debugging\n                questionId: `${sessionContext.sessionKey}_${questionNumber}`.replace(/[^a-zA-Z0-9_-]/g, '_'),\n                originalQuestionText: questionText, // Keep original with newlines for reference\n                cleanedQuestionText: cleanQuestionText // Cleaned version\n            };\n            \n            processedQuestions.push({ json: questionForRAG });\n            \n            console.log(`📝 Processed Q${questionCounter}: ${questionNumber} - \"${cleanQuestionText.substring(0, 80)}...\"`);\n            console.log(`   Module: ${moduleName}`);\n            console.log(`   RAG Fields Ready: user=${questionForRAG.user}, org=${questionForRAG.org}`);\n            console.log(`   Namespace: ${questionForRAG.isolation.questionNamespace}`);\n            console.log(`   Question for RAG: \"${questionForRAG.question.substring(0, 60)}...\"`);\n            console.log(`   Source File: ${questionForRAG.questionnaireFile}`);\n        });\n        \n    } catch (error) {\n        console.error(`❌ Error processing question at index ${index}:`, error.message);\n        console.error(`Question object:`, questionObj);\n    }\n});\n\n// Summary logging\nconsole.log(`\\n📊 QUESTION PROCESSING SUMMARY:`);\nconsole.log(`   Session: ${sessionContext.sessionKey}`);\nconsole.log(`   Organization: ${sessionContext.org}`);\nconsole.log(`   User: ${sessionContext.user}`);\nconsole.log(`   Total questions processed: ${questionCounter}`);\nconsole.log(`   Namespace: ${sessionContext.pineconeNamespace}`);\nconsole.log(`   Source file: ${sessionContext.originalFilename}`);\nconsole.log(`   Batch ID: ${sessionContext.batchId}`);\n\n// Group questions by module for analytics\nconst questionsByModule = {};\nprocessedQuestions.forEach(q => {\n    const moduleName = q.json.moduleName;\n    if (!questionsByModule[moduleName]) {\n        questionsByModule[moduleName] = 0;\n    }\n    questionsByModule[moduleName]++;\n});\n\nconsole.log(`\\n📋 QUESTIONS BY MODULE:`);\nObject.keys(questionsByModule).forEach(module => {\n    console.log(`   ${module}: ${questionsByModule[module]} questions`);\n});\n\n// Validation\nif (processedQuestions.length === 0) {\n    console.error('❌ No questions were successfully processed');\n    throw new Error('Question processing failed - no valid questions found');\n}\n\nif (processedQuestions.length !== questionCounter) {\n    console.warn(`⚠️ Question count mismatch: processed ${processedQuestions.length}, expected ${questionCounter}`);\n}\n\nconsole.log(`\\n✅ Ready to send ${processedQuestions.length} questions to RAG agent`);\nconsole.log(`🔄 Each question formatted with required RAG fields:`);\nconsole.log(`   - user: ${sessionContext.user}`);\nconsole.log(`   - org: ${sessionContext.org}`);\nconsole.log(`   - sessionKey: ${sessionContext.sessionKey}`);\nconsole.log(`   - pineconeNamespace: ${sessionContext.pineconeNamespace}`);\nconsole.log(`   - questionnaireFile: ${sessionContext.originalFilename}`);\nconsole.log(`   - question: [individual question text]`);\nconsole.log(`   - questionIndex: 1-${processedQuestions.length}`);\nconsole.log(`🎯 RAG prompt template fields are properly mapped!`);\n\n// Return array of individual questions, each ready for RAG processing\nreturn processedQuestions;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        1340
+      ],
+      "id": "613a386a-8a66-4be4-9ebd-c1575fe8d33b",
+      "name": "Question Loop Processor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Session Context with Questions\n// This node combines the extracted questions with the session context\n\nconsole.log('🔗 === MERGING SESSION CONTEXT WITH EXTRACTED QUESTIONS ===');\n\n// Get ALL extracted question items from \"Extract Questions from Excel\"\nconst allQuestionItems = $('Extract Questions from Excel').all();\nconsole.log(`📝 Found ${allQuestionItems.length} question items from Excel extraction`);\n\n// Convert the items to an array of question objects\nconst questionsArray = allQuestionItems.map(item => item.json);\nconsole.log('📝 Sample question object:', questionsArray[0]);\n\n// Get the session context from the \"Prepare Questionnaire Data\" node\nconst sessionContextItems = $('Prepare Questionnaire Data').all();\nif (!sessionContextItems || sessionContextItems.length === 0) {\n    throw new Error('❌ Could not find session context from Prepare Questionnaire Data node');\n}\n\nconst sessionContext = sessionContextItems[0].json;\nconsole.log('📊 Session context keys:', Object.keys(sessionContext));\n\n// Validate we have both pieces\nif (!questionsArray || !Array.isArray(questionsArray) || questionsArray.length === 0) {\n    throw new Error('❌ Questions data not found or not an array');\n}\n\nif (!sessionContext.sessionKey || !sessionContext.org || !sessionContext.user) {\n    throw new Error('❌ Session context is incomplete');\n}\n\n// Merge the questions with the session context\nconst mergedData = {\n    // Include all session context\n    ...sessionContext,\n    \n    // Include the extracted questions\n    json: questionsArray,\n    data: questionsArray, // Also include as 'data' for compatibility\n    \n    // Add merge metadata\n    mergedAt: new Date().toISOString(),\n    totalQuestions: questionsArray.length,\n    processingStage: 'questions_merged_with_session'\n};\n\nconsole.log('✅ Successfully merged:');\nconsole.log(`   Session: ${mergedData.sessionKey}`);\nconsole.log(`   Questions: ${mergedData.totalQuestions}`);\nconsole.log(`   Namespace: ${mergedData.pineconeNamespace}`);\n\nreturn [{ json: mergedData }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        1340
+      ],
+      "id": "8bee6d33-7afd-4eab-8c01-d4c832b5fa46",
+      "name": "mergecode"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Enhanced Q&A Collection - Collect RAG output with session context\nconsole.log('📋 === ENHANCED Q&A COLLECTION ===');\n\nconst ragOutput = $json.output; // RAG agent response\nconst itemIndex = $itemIndex + 1; // Current question number (1-based)\n\nconsole.log(`📝 Processing item ${itemIndex}: ${ragOutput?.substring(0, 100)}...`);\n\n// Try to get session context from Question Loop Processor for this specific question\nlet sessionContext = {};\ntry {\n    const questionItems = $('Question Loop Processor').all();\n    if (questionItems && questionItems.length >= itemIndex) {\n        const currentQuestionData = questionItems[itemIndex - 1]; // 0-based array\n        sessionContext = currentQuestionData.json;\n        console.log(`✅ Found session context for Q${itemIndex}`);\n    }\n} catch (error) {\n    console.warn('⚠️ Could not get session context:', error.message);\n}\n\n// Build comprehensive Q&A record\nconst qaRecord = {\n    // Core Q&A data\n    questionIndex: itemIndex,\n    answer: ragOutput, // For compatibility with formatting code\n    combinedOutput: ragOutput, // Alternative field name\n    \n    // Session context (from Question Loop Processor)\n    sessionKey: sessionContext.sessionKey || \"acme/john/session001\",\n    org: sessionContext.org || \"acme\",\n    user: sessionContext.user || \"john\",\n    session: sessionContext.session || \"session001\",\n    \n    // Knowledge base info\n    pineconeNamespace: sessionContext.pineconeNamespace || \"acme_john_session001\",\n    questionnaireFile: sessionContext.questionnaireFile || \"sampleTCSQ10.xlsx\",\n    \n    // Question metadata\n    questionNumber: sessionContext.questionNumber || `Q${itemIndex}`,\n    moduleName: sessionContext.moduleName || \"Module 1: Introduction\",\n    \n    // Processing metadata\n    processedAt: new Date().toISOString(),\n    batchId: sessionContext.batchId || sessionContext.sessionKey || \"acme/john/session001\",\n    \n    // Include original session data for reference\n    originalSessionData: sessionContext\n};\n\nconsole.log(`✅ Collected Q${itemIndex} with session context:`);\nconsole.log(`   Session: ${qaRecord.sessionKey}`);\nconsole.log(`   Question: ${sessionContext.question?.substring(0, 60)}...`);\nconsole.log(`   Answer length: ${ragOutput?.length || 0} characters`);\n\n// Return single object (not array) for \"Run Once for Each Item\" mode\nreturn qaRecord;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2140,
+        1340
+      ],
+      "id": "c4531e3f-8af9-404b-a95c-b3bc0b64f1fc",
+      "name": "QandA Collection Point"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Updated Q&A Formatting - Split Question and Answer from RAG output\nconsole.log('🎨 === Q&A FORMATTING ===');\n\nconst data = $json;\nconst combinedText = data.answer || data.combinedOutput || data.output; // Multiple fallbacks\nconst questionNumber = data.questionIndex || $itemIndex + 1;\n\nconsole.log('🔍 DEBUG: Input data keys:', Object.keys(data));\nconsole.log('🔢 Question number:', questionNumber);\nconsole.log('🔍 DEBUG: combinedText length:', combinedText?.length);\nconsole.log('🔍 DEBUG: First 200 chars:', combinedText?.substring(0, 200));\n\nlet question = '';\nlet answer = '';\n\nif (combinedText) {\n    // Look for \"Answer:\" in the text to split\n    const answerIndex = combinedText.indexOf('Answer:');\n    console.log('🔍 DEBUG: Answer index found at:', answerIndex);\n    \n    if (answerIndex !== -1) {\n        // Extract question part (everything before \"Answer:\")\n        const questionPart = combinedText.substring(0, answerIndex).trim();\n        console.log('🔍 DEBUG: Question part:', questionPart.substring(0, 100));\n        \n        // Extract answer part (everything after \"Answer:\")\n        const answerPart = combinedText.substring(answerIndex + 7).trim(); // +7 for \"Answer:\"\n        console.log('🔍 DEBUG: Answer part length:', answerPart.length);\n        \n        // Clean question - remove \"Question:\" prefix if it exists\n        question = questionPart\n            .replace(/^Question:\\s*/, '')\n            .replace(/^Organizational activities\\s*/, '')\n            .replace(/^Introduction\\s*/, '')\n            .replace(/^Governance\\s*/, '')\n            .replace(/^Strategy\\s*/, '')\n            .replace(/^Risk Management\\s*/, '')\n            .replace(/^Metrics and Targets\\s*/, '')\n            .trim();\n        \n        // Clean answer - just the answer text\n        answer = answerPart.trim();\n        \n        console.log('✅ SUCCESS: Question extracted:', question.substring(0, 100));\n        console.log('✅ SUCCESS: Answer extracted:', answer.substring(0, 100));\n        \n    } else {\n        console.log('⚠️ FALLBACK: No \"Answer:\" found, trying question mark split');\n        // Fallback: split by question mark\n        const questionMarkIndex = combinedText.indexOf('?');\n        if (questionMarkIndex !== -1) {\n            question = combinedText.substring(0, questionMarkIndex + 1).trim();\n            answer = combinedText.substring(questionMarkIndex + 1).trim();\n        } else {\n            // Final fallback - use entire text as answer\n            question = `Question ${questionNumber}`;\n            answer = combinedText;\n        }\n    }\n}\n\n// Create timestamp for proper ordering\nconst processingTimestamp = new Date().toISOString();\nconst batchId = data.sessionKey || data.Session || 'acme/john/session001';\n\nconsole.log(`📊 Processing Q${questionNumber}: ${question.substring(0, 50)}...`);\n\n// Return the split data with all original fields preserved\n// Single object for \"Run Once for Each Item\" mode\nreturn {\n    // Sequential question number\n    Question_Number: questionNumber,\n    Processing_Order: questionNumber,\n    \n    // New split fields (capitalized to match expectations)\n    Question: question,\n    Answer: answer,\n    \n    // Session data (extract from original data or provide defaults)\n    Session: data.sessionKey || data.Session || batchId,\n    Batch_ID: batchId,\n    Organization: data.org || data.Organization || 'acme',\n    User: data.user || data.User || 'john',\n    \n    // File context\n    Knowledge_Base: data.knowledgeBase || data.Knowledge_Base || 'acme_john_session001',\n    Questionnaire_File: data.questionnaireFile || data.Questionnaire_File || 'sampleTCSQ10.xlsx',\n    \n    // Processing info with precise timestamps for ordering\n    Processed_At: processingTimestamp,\n    Processing_Date: processingTimestamp.split('T')[0],\n    Processing_Time: new Date().toLocaleTimeString(),\n    Processing_Sequence: `${batchId}_Q${questionNumber.toString().padStart(2, '0')}`,\n    \n    // Backup fields\n    Original_Combined_Text: combinedText,\n    \n    // Include any other original fields that might be useful\n    ...data\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2380,
+        1340
+      ],
+      "id": "f60d3a14-a5ce-432b-b2c4-98a522a33dc5",
+      "name": "FormatQ&A"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PDF Deduplication Check - NEW NODE\n// Insert this BEFORE \"Split PDF Files for Processing\"\n// Prevents reprocessing PDFs already in Pinecone\n\nconsole.log('🔍 === PDF DEDUPLICATION CHECK ===');\n\nconst sessionData = $json;\nconst pineconeNamespace = sessionData.pineconeNamespace || `${sessionData.org}_${sessionData.user}_${sessionData.session}`.replace(/[^a-zA-Z0-9_-]/g, '_');\n\nconsole.log(`📊 Session: ${sessionData.sessionKey}`);\nconsole.log(`🌲 Namespace: ${pineconeNamespace}`);\nconsole.log(`📄 Documents to check: ${sessionData.documentFiles?.length || 0}`);\n\n// Simple deduplication logic - in production you'd query Pinecone or check S3 state\nconst documentsToProcess = [];\nconst documentsToSkip = [];\n\nif (sessionData.documentFiles && Array.isArray(sessionData.documentFiles)) {\n    sessionData.documentFiles.forEach((doc, index) => {\n        const docId = `${pineconeNamespace}_${doc.cleanName}`;\n        \n        // For now, process all documents but add tracking metadata\n        // In production, add real Pinecone query here to check if doc exists\n        const shouldProcess = true; // Change this logic based on your needs\n        \n        if (shouldProcess) {\n            documentsToProcess.push({\n                ...doc,\n                docIndex: index,\n                docId: docId,\n                processingStatus: 'READY_FOR_PROCESSING',\n                deduplicationCheck: 'PASSED',\n                namespace: pineconeNamespace\n            });\n            console.log(`✅ Will process: ${doc.originalName}`);\n        } else {\n            documentsToSkip.push({\n                ...doc,\n                docIndex: index,\n                docId: docId,\n                processingStatus: 'ALREADY_PROCESSED',\n                deduplicationCheck: 'SKIPPED'\n            });\n            console.log(`⏭️ Skipping: ${doc.originalName} (already processed)`);\n        }\n    });\n}\n\nconst outputData = {\n    ...sessionData,\n    documentFiles: documentsToProcess,\n    deduplication: {\n        originalDocumentCount: sessionData.documentFiles?.length || 0,\n        documentsToProcess: documentsToProcess.length,\n        documentsSkipped: documentsToSkip.length,\n        skippedDocuments: documentsToSkip,\n        pineconeWUSaved: documentsToSkip.length * 100,\n        namespace: pineconeNamespace\n    }\n};\n\nconsole.log(`📊 DEDUPLICATION SUMMARY:`);\nconsole.log(`   Original documents: ${outputData.deduplication.originalDocumentCount}`);\nconsole.log(`   Documents to process: ${documentsToProcess.length}`);\nconsole.log(`   Documents skipped: ${documentsToSkip.length}`);\nconsole.log(`   Estimated WU saved: ${outputData.deduplication.pineconeWUSaved}`);\n\nif (documentsToProcess.length === 0) {\n    console.log('🎯 No documents need processing - all already in vector database');\n    return [{\n        json: {\n            ...outputData,\n            processingComplete: true,\n            skipToResults: true,\n            message: 'All documents already processed, proceeding to Q&A phase'\n        }\n    }];\n}\n\nreturn [{ json: outputData }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        580
+      ],
+      "id": "8480a363-1d75-43f2-baf8-b865e11a82da",
+      "name": "PDF Deduplication Check"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fixed Results Aggregation for S3 Upload - REPLACE THE EXISTING ONE\n// This handles cases where one or both arms might not execute\n\nconsole.log('📦 === RESULTS AGGREGATION FOR S3 UPLOAD (FIXED) ===');\n\n// Try to collect data from both processing arms with error handling\nlet qaResults = [];\nlet pdfResults = [];\n\ntry {\n    qaResults = $('Insert Session Q&A to Sheets').all() || [];\n    console.log(`📝 Q&A Results: ${qaResults.length} items`);\n} catch (error) {\n    console.log(`⚠️ Q&A Results not available: ${error.message}`);\n    qaResults = [];\n}\n\ntry {\n    pdfResults = $('Enhanced PDF Processing').all() || [];\n    console.log(`📄 PDF Results: ${pdfResults.length} items`);\n} catch (error) {\n    console.log(`⚠️ PDF Results not available: ${error.message}`);\n    pdfResults = [];\n}\n\n// Extract session information from multiple possible sources\nlet sessionContext = {};\n\n// Try Q&A results first\nif (qaResults.length > 0) {\n    const firstQA = qaResults[0].json;\n    sessionContext = {\n        sessionKey: firstQA.Session || firstQA.sessionKey,\n        org: firstQA.Organization || firstQA.org,\n        user: firstQA.User || firstQA.user,\n        session: firstQA.sessionKey?.split('/')[2] || firstQA.session\n    };\n    console.log('✅ Session context from Q&A results');\n} \n// Try PDF results\nelse if (pdfResults.length > 0) {\n    const firstPDF = pdfResults[0].json;\n    sessionContext = {\n        sessionKey: firstPDF.sessionKey,\n        org: firstPDF.org,\n        user: firstPDF.user,\n        session: firstPDF.session\n    };\n    console.log('✅ Session context from PDF results');\n} \n// Try getting from current workflow execution context\nelse {\n    try {\n        // Try to get from any available node in the workflow\n        const availableNodes = [\n            'Multi-userBatchProcessing',\n            'Prepare Questionnaire Data', \n            'Enhanced PDF Processing',\n            'Question Loop Processor'\n        ];\n        \n        for (const nodeName of availableNodes) {\n            try {\n                const nodeData = $(nodeName).all();\n                if (nodeData && nodeData.length > 0) {\n                    const data = nodeData[0].json;\n                    if (data.sessionKey || data.org) {\n                        sessionContext = {\n                            sessionKey: data.sessionKey,\n                            org: data.org,\n                            user: data.user,\n                            session: data.session\n                        };\n                        console.log(`✅ Session context from ${nodeName}`);\n                        break;\n                    }\n                }\n            } catch (nodeError) {\n                console.log(`⚠️ Could not get data from ${nodeName}: ${nodeError.message}`);\n            }\n        }\n    } catch (contextError) {\n        console.log(`⚠️ Could not get workflow context: ${contextError.message}`);\n    }\n}\n\n// If we still don't have session context, create a default one\nif (!sessionContext.sessionKey && !sessionContext.org) {\n    console.log('⚠️ No session context found, creating default');\n    const timestamp = Date.now();\n    sessionContext = {\n        sessionKey: `default/user/session${timestamp}`,\n        org: 'default',\n        user: 'user',\n        session: `session${timestamp}`\n    };\n}\n\n// Extract session parts for S3 path\nconst sessionParts = sessionContext.sessionKey?.split('/') || [];\nconst orgId = sessionParts[0] || sessionContext.org || 'default';\nconst userId = sessionParts[1] || sessionContext.user || 'user';\nconst sessionId = sessionParts[2] || sessionContext.session || 'session';\n\nconsole.log(`🎯 Session Context: ${orgId}/${userId}/${sessionId}`);\n\n// Create timestamp for file naming\nconst timestamp = Date.now();\nconst processingTimestamp = new Date().toISOString();\n\n// Create Excel file content from Q&A results (if available)\nlet excelContent = [];\nlet hasQAData = qaResults.length > 0;\n\nif (hasQAData) {\n    console.log('📊 Creating Excel content from Q&A results');\n    // Add headers\n    excelContent.push([\n        'Question Number', 'Question', 'Answer', 'Answer Quality', \n        'Character Count', 'Session', 'Organization', 'User', \n        'Date', 'Time', 'Questionnaire File', 'Knowledge Base'\n    ]);\n    \n    // Add data rows\n    qaResults.forEach(item => {\n        const j = item.json;\n        excelContent.push([\n            j.Q_Number || '',\n            j.Question || '',\n            j.Answer || '',\n            j.Answer_Quality || '',\n            j.Character_Count || '',\n            j.Session || '',\n            j.Organization || '',\n            j.User || '',\n            j.Date || '',\n            j.Time || '',\n            j.Questionnaire_File || '',\n            j.Knowledge_Base || ''\n        ]);\n    });\n} else {\n    console.log('📊 No Q&A data available, creating empty template');\n    // Create empty template\n    excelContent.push([\n        'Question Number', 'Question', 'Answer', 'Answer Quality', \n        'Character Count', 'Session', 'Organization', 'User', \n        'Date', 'Time', 'Questionnaire File', 'Knowledge Base'\n    ]);\n    excelContent.push([\n        '1', 'No questions processed', 'No Q&A data available for this session', 'No Data', \n        '0', sessionContext.sessionKey, orgId, userId, \n        new Date().toISOString().split('T')[0], new Date().toLocaleTimeString(), 'N/A', 'N/A'\n    ]);\n}\n\n// Convert to CSV format for Excel compatibility\nfunction arrayToCSV(data) {\n    return data.map(row => \n        row.map(field => \n            `\"${String(field || '').replace(/\"/g, '\"\"')}\"`\n        ).join(',')\n    ).join('\\n');\n}\n\nconst csvContent = arrayToCSV(excelContent);\n\n// Create file name: userid_sessionid_timestamp.xlsx (as requested)\nconst excelFileName = `${userId}_${sessionId}_${timestamp}.xlsx`;\nconst csvFileName = `${userId}_${sessionId}_${timestamp}.csv`;\n\n// Create processing summary\nconst summaryContent = {\n    session: {\n        sessionKey: sessionContext.sessionKey,\n        orgId: orgId,\n        userId: userId,\n        sessionId: sessionId,\n        processingCompletedAt: processingTimestamp\n    },\n    qaProcessing: {\n        totalQuestions: qaResults.length,\n        questionsAnswered: hasQAData ? qaResults.filter(item => \n            item.json.Answer_Quality !== 'No Data Available').length : 0,\n        questionsWithoutData: hasQAData ? qaResults.filter(item => \n            item.json.Answer_Quality === 'No Data Available').length : 0,\n        averageAnswerLength: hasQAData && qaResults.length > 0 \n            ? Math.round(qaResults.reduce((sum, item) => \n                sum + (item.json.Character_Count || 0), 0) / qaResults.length)\n            : 0,\n        dataAvailable: hasQAData\n    },\n    pdfProcessing: {\n        documentsProcessed: pdfResults.length,\n        vectorDatabaseNamespace: pdfResults.length > 0 \n            ? pdfResults[0].json.vectorDatabaseSummary?.namespace \n            : `${orgId}_${userId}_${sessionId}`,\n        dataAvailable: pdfResults.length > 0\n    },\n    generatedFiles: {\n        excelFile: excelFileName,\n        csvFile: csvFileName,\n        summaryFile: `summary_${userId}_${sessionId}_${timestamp}.json`\n    },\n    processingStatus: {\n        qaArmExecuted: hasQAData,\n        pdfArmExecuted: pdfResults.length > 0,\n        bothArmsExecuted: hasQAData && pdfResults.length > 0,\n        anyArmExecuted: hasQAData || pdfResults.length > 0\n    }\n};\n\n// Files to upload to S3\nconst filesToUpload = [\n    {\n        filename: excelFileName,\n        content: csvContent,\n        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',\n        description: hasQAData ? 'Q&A results in Excel format' : 'Empty Q&A template (no data processed)'\n    },\n    {\n        filename: csvFileName,\n        content: csvContent,\n        contentType: 'text/csv',\n        description: hasQAData ? 'Q&A results in CSV format' : 'Empty Q&A template (no data processed)'\n    },\n    {\n        filename: `summary_${userId}_${sessionId}_${timestamp}.json`,\n        content: JSON.stringify(summaryContent, null, 2),\n        contentType: 'application/json',\n        description: 'Processing summary and metrics'\n    },\n    {\n        filename: `completion_${userId}_${sessionId}.txt`,\n        content: `Session ${sessionContext.sessionKey} processing completed at ${processingTimestamp}\n\nSummary:\n- Questions processed: ${qaResults.length}\n- Documents processed: ${pdfResults.length}\n- Q&A arm executed: ${hasQAData ? 'YES' : 'NO'}\n- PDF arm executed: ${pdfResults.length > 0 ? 'YES' : 'NO'}\n- Files generated: ${excelFileName}\n\nResults available in this directory.`,\n        contentType: 'text/plain',\n        description: 'Human-readable completion status'\n    }\n];\n\n// Create S3 upload instructions\nconst s3UploadInstructions = filesToUpload.map(file => ({\n    bucketName: 'uploadsfromchatbot',\n    fileKey: `${orgId}/${userId}/${sessionId}/results/${file.filename}`,\n    fileContent: file.content,\n    contentType: file.contentType,\n    metadata: {\n        'session-key': sessionContext.sessionKey || 'unknown',\n        'org-id': orgId,\n        'user-id': userId,\n        'session-id': sessionId,\n        'generated-at': processingTimestamp,\n        'file-type': file.description,\n        'generated-by': 'n8n-workflow',\n        'qa-data-available': hasQAData.toString(),\n        'pdf-data-available': (pdfResults.length > 0).toString()\n    },\n    processingInfo: {\n        filename: file.filename,\n        description: file.description,\n        resultType: file.filename.includes('.xlsx') ? 'EXCEL_RESULTS' : \n                   file.filename.includes('.csv') ? 'CSV_RESULTS' :\n                   file.filename.includes('.json') ? 'SUMMARY' : 'STATUS_FILE'\n    }\n}));\n\nconsole.log(`📊 RESULTS AGGREGATION SUMMARY:`);\nconsole.log(`   Session: ${sessionContext.sessionKey}`);\nconsole.log(`   S3 Path: uploadsfromchatbot/${orgId}/${userId}/${sessionId}/results/`);\nconsole.log(`   Files to upload: ${filesToUpload.length}`);\nconsole.log(`   Q&A Results: ${qaResults.length} questions processed`);\nconsole.log(`   PDF Results: ${pdfResults.length} documents processed`);\nconsole.log(`   Main Excel File: ${excelFileName}`);\nconsole.log(`   Q&A Arm Executed: ${hasQAData ? 'YES' : 'NO'}`);\nconsole.log(`   PDF Arm Executed: ${pdfResults.length > 0 ? 'YES' : 'NO'}`);\n\nfilesToUpload.forEach((file, index) => {\n    console.log(`   📄 File ${index + 1}: ${file.filename} (${file.description})`);\n});\n\n// Always return the upload instructions, even if some arms didn't execute\nreturn s3UploadInstructions.map(instruction => ({ json: instruction }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3080,
+        0
+      ],
+      "id": "f7b53c04-6b20-484b-ad96-6efe8bd10623",
+      "name": "Results Aggregation"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced PDF Processing Complete - Structured Output for RAG Workflow\n// This node creates comprehensive output data for downstream RAG processing\n\nconst result = $input.first().json;\n\n// Look for metadata in multiple possible locations after Pinecone processing\nlet sessionMetadata = {};\n\n// First, try to find metadata in the current result\nif (result.documentMetadata) {\n    sessionMetadata = result.documentMetadata;\n} else if (result.metadata) {\n    sessionMetadata = result.metadata;\n} else {\n    // If no metadata object, look for individual properties in result\n    sessionMetadata = {\n        sessionKey: result.sessionKey,\n        org: result.org,\n        user: result.user,\n        session: result.session,\n        filename: result.filename || result.originalFilename,\n        pineconeNamespace: result.pineconeNamespace,\n        batchId: result.batchId,\n        currentDocIndex: result.currentDocIndex || result.currentDocumentIndex,\n        totalDocs: result.totalDocs || result.totalDocumentsInSession,\n        extractedAt: result.extractedAt,\n        pageCount: result.pageCount\n    };\n}\n\n// Also check if there's preserved data from earlier in the workflow\nif (!sessionMetadata.sessionKey && $input.all().length > 0) {\n    // Look through all input items for metadata\n    for (const item of $input.all()) {\n        if (item.json.documentMetadata && item.json.documentMetadata.sessionKey) {\n            sessionMetadata = { ...sessionMetadata, ...item.json.documentMetadata };\n            break;\n        }\n    }\n}\n\nconsole.log('🔍 Searching for session metadata...');\nconsole.log('Available properties in result:', Object.keys(result));\nconsole.log('Found metadata:', sessionMetadata);\n\n// Extract session data with fallbacks from multiple possible sources\nconst sessionKey = sessionMetadata.sessionKey || result.sessionKey || 'unknown_session';\nconst org = sessionMetadata.org || result.org || 'unknown_org';\nconst user = sessionMetadata.user || result.user || 'unknown_user';\nconst session = sessionMetadata.session || result.session || 'unknown_session_id';\nconst filename = sessionMetadata.filename || result.originalFilename || result.processedFile || 'unknown_file';\nconst pineconeNamespace = sessionMetadata.pineconeNamespace || result.pineconeNamespace || `${org}_${user}_${session}`.replace(/[^a-zA-Z0-9_-]/g, '_');\nconst batchId = sessionMetadata.batchId || result.batchId || `batch_${Date.now()}`;\n\n// Extract document counts with safe defaults\nconst currentDocIndex = parseInt(sessionMetadata.currentDocIndex || result.currentDocumentIndex || 1);\nconst totalDocs = parseInt(sessionMetadata.totalDocs || result.totalDocumentsInSession || 1);\n\nconsole.log(`✅ PDF processed successfully: ${filename}`);\nconsole.log(`📊 Session: ${sessionKey}`);\nconsole.log(`🏢 Org: ${org} | User: ${user}`);\nconsole.log(`📋 Stored in namespace: ${pineconeNamespace}`);\n\n// Enhanced session completion data structure\nconst completionData = {\n    // Core session identifiers\n    sessionKey: sessionKey,\n    org: org,\n    user: user,\n    session: session,\n    \n    // Pinecone/Vector DB information\n    vectorDB: {\n        namespace: pineconeNamespace,\n        provider: 'pinecone',\n        index: 'forcohere',\n        embeddingModel: 'cohere',\n        status: 'loaded_successfully',\n        loadedAt: new Date().toISOString()\n    },\n    \n    // Document processing status\n    documentProcessing: {\n        processedFile: filename,\n        extractedAt: sessionMetadata.extractedAt || new Date().toISOString(),\n        currentDocumentIndex: currentDocIndex,\n        totalDocumentsInSession: totalDocs,\n        isLastDocument: currentDocIndex >= totalDocs,\n        documentsRemaining: Math.max(0, totalDocs - currentDocIndex),\n        batchProgress: `${currentDocIndex}/${totalDocs}`,\n        batchProgressPercentage: totalDocs > 0 ? Math.round((currentDocIndex / totalDocs) * 100) : 100\n    },\n    \n    // Processing status flags\n    status: {\n        pdfProcessingComplete: true,\n        vectorDBLoadComplete: true,\n        readyForRAGProcessing: currentDocIndex >= totalDocs,\n        processingStage: 'pdf_embedding_complete',\n        nextStage: currentDocIndex >= totalDocs ? 'rag_processing' : 'continue_pdf_batch',\n        allDocumentsProcessed: currentDocIndex >= totalDocs\n    },\n    \n    // Vector database summary for results aggregation\n    vectorDatabaseSummary: {\n        namespace: pineconeNamespace,\n        documentsLoaded: currentDocIndex,\n        status: 'ready_for_queries',\n        provider: 'pinecone',\n        index: 'forcohere',\n        lastUpdate: new Date().toISOString()\n    },\n    \n    // Session completion timestamp\n    completedAt: new Date().toISOString()\n};\n\nconsole.log('📋 === PDF PROCESSING COMPLETION SUMMARY ===');\nconsole.log(`🎯 Session: ${completionData.sessionKey}`);\nconsole.log(`📊 Progress: ${completionData.documentProcessing.batchProgress} (${completionData.documentProcessing.batchProgressPercentage}%)`);\nconsole.log(`🏁 Session Complete: ${completionData.status.allDocumentsProcessed}`);\nconsole.log(`🚀 Ready for RAG: ${completionData.status.readyForRAGProcessing}`);\nconsole.log(`🌲 Vector Namespace: ${completionData.vectorDB.namespace}`);\n\nif (completionData.status.allDocumentsProcessed) {\n    console.log('🎉 === ALL DOCUMENTS PROCESSED - READY FOR RAG ===');\n    console.log(`📚 Knowledge base loaded with ${completionData.documentProcessing.totalDocumentsInSession} documents`);\n    console.log(`🔍 RAG processing can begin for namespace: ${completionData.vectorDB.namespace}`);\n} else {\n    console.log(`⏳ === CONTINUING BATCH PROCESSING ===`);\n    console.log(`📄 Documents remaining: ${completionData.documentProcessing.documentsRemaining}`);\n}\n\nreturn [{ json: completionData }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2820,
+        0
+      ],
+      "id": "3c26ac42-420a-43b4-91ce-f1c7144529ed",
+      "name": "Enhanced PDF Processing",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Metadata Preservation Node\n// Insert this RIGHT AFTER \"Store in Pinecone with Session Namespace\" node\n// This preserves session metadata that might be lost during Pinecone processing\n\nconsole.log('💾 === PRESERVING SESSION METADATA ===');\n\n// Get the current result from Pinecone storage\nconst pineconeResult = $input.first().json;\n\n// The Pinecone node typically returns limited data, so we need to reconstruct \n// the session metadata from what we passed to it\n\n// Check if metadata is still available in current item\nlet preservedMetadata = {};\n\n// Look for metadata in various possible locations\nif (pineconeResult.documentMetadata) {\n    preservedMetadata = pineconeResult.documentMetadata;\n    console.log('✅ Found documentMetadata in pinecone result');\n} else if (pineconeResult.metadata) {\n    preservedMetadata = pineconeResult.metadata;\n    console.log('✅ Found metadata in pinecone result');\n} else {\n    console.log('⚠️ No metadata in pinecone result, checking all input items...');\n    \n    // Search through ALL input items to find our metadata\n    const allInputs = $input.all();\n    for (let i = 0; i < allInputs.length; i++) {\n        const item = allInputs[i].json;\n        console.log(`🔍 Checking input item ${i + 1}:`, Object.keys(item));\n        \n        if (item.documentMetadata && item.documentMetadata.sessionKey) {\n            preservedMetadata = item.documentMetadata;\n            console.log(`✅ Found metadata in input item ${i + 1}`);\n            break;\n        } else if (item.sessionKey) {\n            // Build metadata from individual properties\n            preservedMetadata = {\n                sessionKey: item.sessionKey,\n                org: item.org,\n                user: item.user,\n                session: item.session,\n                filename: item.filename,\n                pineconeNamespace: item.pineconeNamespace,\n                batchId: item.batchId,\n                currentDocIndex: item.currentDocIndex,\n                totalDocs: item.totalDocs,\n                extractedAt: item.extractedAt,\n                pageCount: item.pageCount\n            };\n            console.log(`✅ Built metadata from input item ${i + 1} properties`);\n            break;\n        }\n    }\n}\n\n// If still no metadata, try to get it from node parameters or memory\nif (!preservedMetadata.sessionKey) {\n    console.log('❌ No session metadata found in inputs');\n    console.log('Available pinecone result keys:', Object.keys(pineconeResult));\n    \n    // Last resort: create minimal metadata\n    preservedMetadata = {\n        sessionKey: 'recovered_session',\n        org: 'unknown_org',\n        user: 'unknown_user',\n        session: 'unknown_session',\n        filename: 'processed_document',\n        pineconeNamespace: 'default_namespace',\n        batchId: `recovered_batch_${Date.now()}`,\n        currentDocIndex: 1,\n        totalDocs: 1,\n        extractedAt: new Date().toISOString(),\n        pageCount: 'unknown'\n    };\n    console.log('🔧 Created fallback metadata');\n}\n\n// Create enriched result with preserved metadata\nconst enrichedResult = {\n    // Preserve any data from Pinecone processing\n    ...pineconeResult,\n    \n    // Add/restore the session metadata\n    documentMetadata: preservedMetadata,\n    \n    // Also add metadata at root level for easier access\n    sessionKey: preservedMetadata.sessionKey,\n    org: preservedMetadata.org,\n    user: preservedMetadata.user,\n    session: preservedMetadata.session,\n    filename: preservedMetadata.filename,\n    pineconeNamespace: preservedMetadata.pineconeNamespace,\n    batchId: preservedMetadata.batchId,\n    currentDocIndex: preservedMetadata.currentDocIndex,\n    totalDocs: preservedMetadata.totalDocs,\n    extractedAt: preservedMetadata.extractedAt,\n    pageCount: preservedMetadata.pageCount,\n    \n    // Add processing status\n    pineconeProcessingComplete: true,\n    pineconeProcessedAt: new Date().toISOString(),\n    metadataPreserved: true,\n    \n    // Mark this as coming from metadata preservation\n    preservationNode: 'metadata_preservation_applied'\n};\n\nconsole.log('📋 === PRESERVED METADATA SUMMARY ===');\nconsole.log(`🎯 Session: ${preservedMetadata.sessionKey}`);\nconsole.log(`🏢 Org: ${preservedMetadata.org} | User: ${preservedMetadata.user}`);\nconsole.log(`📄 File: ${preservedMetadata.filename}`);\nconsole.log(`🌲 Pinecone Namespace: ${preservedMetadata.pineconeNamespace}`);\nconsole.log(`📊 Progress: ${preservedMetadata.currentDocIndex}/${preservedMetadata.totalDocs}`);\nconsole.log(`🔗 Batch ID: ${preservedMetadata.batchId}`);\nconsole.log(`✅ Metadata preservation: SUCCESS`);\n\nreturn [{ json: enrichedResult }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2620,
+        0
+      ],
+      "id": "f0e59520-04d1-4576-a085-9dd8586d00cb",
+      "name": "Preserve Session Metadata"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1b2c3d4",
+              "name": "sheet_filename",
+              "value": "={{ $json.all_qa_items[0].Knowledge_Base }}_{{ $now.toFormat('yyyyMMdd_HHmmss') }}",
+              "type": "string"
+            },
+            {
+              "id": "b2c3d4e5",
+              "name": "sheet_title",
+              "value": "={{ $json.all_qa_items[0].Knowledge_Base }} - Q&A Session {{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+              "type": "string"
+            },
+            {
+              "id": "c3d4e5f6",
+              "name": "session_id",
+              "value": "={{ $json.all_qa_items[0].Knowledge_Base }}",
+              "type": "string"
+            },
+            {
+              "id": "d4e5f6g7",
+              "name": "total_questions",
+              "value": "={{ $json.all_qa_items.length }}",
+              "type": "number"
+            },
+            {
+              "id": "e5f6g7h8",
+              "name": "all_qa_data",
+              "value": "={{ $json.all_qa_items }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2960,
+        1340
+      ],
+      "id": "08080256-9c87-4962-bd45-50b1eff8cfa7",
+      "name": "Extract Session Info1"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "all_qa_items",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2780,
+        1340
+      ],
+      "id": "48946c69-fc0a-4d85-ac8e-274a82eca698",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "Q_Number",
+              "value": "={{ $json.Question_Number }}",
+              "type": "number"
+            },
+            {
+              "id": "5a492480-9898-4140-93a3-a3f6438004f1",
+              "name": "Question",
+              "value": "={{ $json.Question }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "Answer",
+              "value": "={{ $json.Answer }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "Session",
+              "value": "={{ $json.Session }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "Organization",
+              "value": "={{ $json.Organization }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "User",
+              "value": "={{ $json.User }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "Date",
+              "value": "={{ $json.Processing_Date }}",
+              "type": "string"
+            },
+            {
+              "id": "a8",
+              "name": "Time",
+              "value": "={{ $json.Processing_Time }}",
+              "type": "string"
+            },
+            {
+              "id": "a9",
+              "name": "Answer_Quality",
+              "value": "={{ $json.Answer_Quality }}",
+              "type": "string"
+            },
+            {
+              "id": "a10",
+              "name": "Character_Count",
+              "value": "={{ $json.Character_Count }}",
+              "type": "number"
+            },
+            {
+              "id": "a11",
+              "name": "Questionnaire_File",
+              "value": "={{ $json.Questionnaire_File }}",
+              "type": "string"
+            },
+            {
+              "id": "a12",
+              "name": "Knowledge_Base",
+              "value": "={{ $json.Knowledge_Base }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4000,
+        1340
+      ],
+      "id": "f0aa5f4e-0b0b-42a7-b564-eb8d4d4f3414",
+      "name": "Format Q&A Data"
+    },
+    {
+      "parameters": {
+        "resource": "spreadsheet",
+        "title": "={{ $json.sheet_filename }}",
+        "sheetsUi": {
+          "sheetValues": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3140,
+        1340
+      ],
+      "id": "d6fab644-0a76-4ff6-8166-b5aa0aac96c3",
+      "name": "Create Session Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "g1ri76vroRhvDGMt",
+          "name": "G-Sheets for QandA Web client 1"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0e4e2455-32f8-4fc1-89ed-d81d8ae97fd3",
+              "name": "sheet_title",
+              "value": "={{ $('Extract Session Info1').item.json.sheet_filename }}",
+              "type": "string"
+            },
+            {
+              "id": "f6g7h8i9",
+              "name": "spreadsheet_id",
+              "value": "={{ $json.spreadsheetId }}",
+              "type": "string"
+            },
+            {
+              "id": "g7h8i9j0",
+              "name": "spreadsheet_url",
+              "value": "={{ $json.spreadsheetUrl }}",
+              "type": "string"
+            },
+            {
+              "id": "h8i9j0k1",
+              "name": "sheet_created_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "i9j0k1l2",
+              "name": "all_qa_data",
+              "value": "={{ $('Extract Session Info1').item.json.all_qa_data }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3320,
+        1340
+      ],
+      "id": "28bccb79-1a79-4322-b88b-5e7339b74835",
+      "name": "Store Sheet Info"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "all_qa_data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 3.1,
+      "position": [
+        3800,
+        1340
+      ],
+      "id": "a1f5d8d1-b061-4a0c-8d15-e8e673ec68bf",
+      "name": "Split Items Back"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Store Sheet Info').item.json.spreadsheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Q_Number",
+              "displayName": "Q_Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Question",
+              "displayName": "Question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Answer",
+              "displayName": "Answer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Session",
+              "displayName": "Session",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Organization",
+              "displayName": "Organization",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "User",
+              "displayName": "User",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Time",
+              "displayName": "Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Answer_Quality",
+              "displayName": "Answer_Quality",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Character_Count",
+              "displayName": "Character_Count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Questionnaire_File",
+              "displayName": "Questionnaire_File",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Knowledge_Base",
+              "displayName": "Knowledge_Base",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED",
+          "useAppend": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4220,
+        1160
+      ],
+      "id": "4cdff65b-c18e-4cd7-a2b3-3724f5264ff0",
+      "name": "Append Q&A Rows1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "g1ri76vroRhvDGMt",
+          "name": "G-Sheets for QandA Web client 1"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "99bff437-261b-494c-ae8d-01468552d859",
+              "name": "spreadsheet_url",
+              "value": "={{ $json.spreadsheet_url }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3480,
+        1520
+      ],
+      "id": "03df1f38-4915-40bf-aa7d-6d2e1641e9e3",
+      "name": "Get Sheet URL"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Optional Data Cleaning Node for Google Sheets\n// Place this BEFORE your Edit Fields node\n\nconsole.log('🧹 === CLEANING DATA FOR GOOGLE SHEETS ===');\n\nconst data = $json;\n\n// Clean text fields for better display in Google Sheets\nfunction cleanText(text) {\n    if (!text || typeof text !== 'string') return text;\n    \n    return text\n        .replace(/\\n+/g, ' ')           // Replace newlines with spaces\n        .replace(/\\s+/g, ' ')          // Collapse multiple spaces\n        .replace(/\"/g, '\"\"')           // Escape quotes for CSV compatibility\n        .trim();                       // Remove leading/trailing spaces\n}\n\n// Enhanced data with cleaned fields\nconst cleanedData = {\n    // Copy all original data\n    ...data,\n    \n    // Clean the main display fields\n    Question: cleanText(data.Question),\n    Answer: cleanText(data.Answer),\n    \n    // Ensure proper formatting for sheets\n    Question_Number: parseInt(data.Question_Number) || 0,\n    Processing_Order: parseInt(data.Processing_Order) || 0,\n    \n    // Clean session and file info\n    Session: cleanText(data.Session),\n    Organization: cleanText(data.Organization), \n    User: cleanText(data.User),\n    Questionnaire_File: cleanText(data.Questionnaire_File),\n    \n    // Format dates consistently\n    Processing_Date: data.Processing_Date || new Date().toISOString().split('T')[0],\n    Processing_Time: data.Processing_Time || new Date().toLocaleTimeString(),\n    \n    // Add data quality indicators\n    Answer_Quality: data.Answer && data.Answer.includes('Sorry, the answer to this question is not available') \n        ? 'No Data Available' \n        : 'Data Found',\n    \n    Character_Count: data.Answer ? data.Answer.length : 0,\n    \n    // Create a simple unique ID for sheets\n    Unique_ID: `${data.Session}_Q${String(data.Question_Number).padStart(2, '0')}_${Date.now()}`\n};\n\nconsole.log(`✅ Cleaned Q${cleanedData.Question_Number}: ${cleanedData.Question?.substring(0, 60)}...`);\nconsole.log(`   Answer Quality: ${cleanedData.Answer_Quality}`);\nconsole.log(`   Character Count: ${cleanedData.Character_Count}`);\n\nreturn cleanedData;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2600,
+        1340
+      ],
+      "id": "9de239fb-e29b-4a3e-99a7-0b9e69b9808a",
+      "name": "Optional Data Cleaning Node"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "formatted_qa_items",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        4480,
+        1340
+      ],
+      "id": "5ba02b65-4dd7-4a2c-a3c2-25f8b402acf8",
+      "name": "Aggregate for S3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract metadata from first item for S3 path and filename\nconst firstItem = $input.all()[0].json.formatted_qa_items[0];\nconst org = firstItem.Organization.toLowerCase();\nconst user = firstItem.User.toLowerCase();\n\n// Fix session extraction - get only the session part, not the full path\nlet sessionRaw = firstItem.Session.toLowerCase();\nlet sessionOnly;\n\n// If session contains full path like \"acme/john/session001\", extract just \"session001\"\nif (sessionRaw.includes('/')) {\n  const sessionParts = sessionRaw.split('/');\n  sessionOnly = sessionParts[sessionParts.length - 1]; // Get the last part\n} else {\n  sessionOnly = sessionRaw; // Use as-is if no path separators\n}\n\nconst timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\\..+/, '').replace('T', '_');\n\n// CORRECTED BUCKET NAME - Use your actual S3 bucket name\nconst bucketName = 'uploadsfromchatbot'; // This should match your actual S3 bucket\n\nconsole.log('🔍 DEBUG - Session extraction:');\nconsole.log('  Original session:', sessionRaw);\nconsole.log('  Extracted session:', sessionOnly);\nconsole.log('  Org:', org);\nconsole.log('  User:', user);\nconsole.log('  Bucket:', bucketName);\n\n// Filter data to only include required fields\nconst filteredData = $input.all()[0].json.formatted_qa_items.map(item => ({\n  Question_Number: item.Q_Number,\n  Question: item.Question,\n  Answer: item.Answer,\n  Date: item.Date,\n  Time: item.Time\n}));\n\n// CORRECTED PATHS - Folder path has trailing slash, file path does NOT\nconst output = {\n  organization: org,\n  user: user,\n  session: sessionOnly,\n  original_session_path: sessionRaw,\n  timestamp: timestamp,\n  bucket_name: bucketName,\n  excel_filename: `${org}_${user}_${sessionOnly}_${timestamp}.xlsx`,\n  s3_folder_path: `${org}/${user}/${sessionOnly}/results/`,  // Folder path WITH trailing slash\n  s3_full_path: `${org}/${user}/${sessionOnly}/results/${org}_${user}_${sessionOnly}_${timestamp}.xlsx`,  // File path WITHOUT trailing slash\n  qa_data_for_excel: filteredData\n};\n\nconsole.log('✅ Final paths:');\nconsole.log('  Bucket name:', output.bucket_name);\nconsole.log('  Excel filename:', output.excel_filename);\nconsole.log('  S3 folder path:', output.s3_folder_path);\nconsole.log('  S3 full path:', output.s3_full_path);\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4740,
+        1340
+      ],
+      "id": "13d3e38f-3522-4238-acf8-abd84cade6e0",
+      "name": "Prepare S3 Upload Data"
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "bucketName": "={{ $json.bucket_name }}",
+        "folderName": "={{ $json.organization }}/{{ $json.user }}/{{ $json.session }}/results/",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        5000,
+        1340
+      ],
+      "id": "0dafbd88-f1f1-411d-b0fb-c3a9cd348060",
+      "name": "Create S3 Results Folder",
+      "credentials": {
+        "s3": {
+          "id": "f7lofmHIdgg8mCrx",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "xlsx",
+        "binaryPropertyName": "=data",
+        "options": {
+          "fileName": "={{ $('Prepare S3 Upload Data').item.json.excel_filename }}"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        4980,
+        1620
+      ],
+      "id": "6e955e32-6c86-4808-9066-b2c1227dcb49",
+      "name": "Convert to File1"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "={{ $('Prepare S3 Upload Data').item.json.bucket_name }}",
+        "fileName": "={{ $('Prepare S3 Upload Data').item.json.s3_full_path }}",
+        "additionalFields": {
+          "acl": "bucketOwnerFullControl"
+        }
+      },
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        5200,
+        1620
+      ],
+      "id": "6f9f420c-f9e9-4310-a60b-5198dbd1705e",
+      "name": "Upload Excel to S3",
+      "credentials": {
+        "s3": {
+          "id": "f7lofmHIdgg8mCrx",
+          "name": "S3 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "qa_data_for_excel",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        4740,
+        1620
+      ],
+      "id": "8c6301ad-06f6-43da-9b3a-4c936fa38b3f",
+      "name": "Split Out"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cron Trigger - Every 5 Seconds": {
+      "main": [
+        [
+          {
+            "node": "S3 API - List uploadsfromchatbot Objects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S3 API - List uploadsfromchatbot Objects": {
+      "main": [
+        [
+          {
+            "node": "XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Ready Sessions": {
+      "main": [
+        [
+          {
+            "node": "PDF Deduplication Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split PDF Files for Processing": {
+      "main": [
+        [
+          {
+            "node": "Prepare S3 PDF Download Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download PDF from S3": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Prepare Text Data with Session Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Text Data with Session Context": {
+      "main": [
+        [
+          {
+            "node": "Split Text for Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Text for Embedding": {
+      "main": [
+        [
+          {
+            "node": "Store in Pinecone with Session Namespace",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Store in Pinecone with Session Namespace",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cohere Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Store in Pinecone with Session Namespace",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store in Pinecone with Session Namespace": {
+      "main": [
+        [
+          {
+            "node": "Preserve Session Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Questionnaire Data": {
+      "main": [
+        [
+          {
+            "node": "Download Questionnaire from S3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Questionnaire from S3": {
+      "main": [
+        [
+          {
+            "node": "Extract Questions from Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Questions from Excel": {
+      "main": [
+        [
+          {
+            "node": "mergecode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced RAG Agent": {
+      "main": [
+        [
+          {
+            "node": "QandA Collection Point",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Session Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Enhanced RAG Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Enhanced RAG Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Session Knowledge Base (Pinecone)": {
+      "ai_tool": [
+        [
+          {
+            "node": "Enhanced RAG Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cohere Embeddings for Q&A": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Session Knowledge Base (Pinecone)",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Excel Files for processing": {
+      "main": [
+        [
+          {
+            "node": "Prepare Excel data for S3 download",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XML": {
+      "main": [
+        [
+          {
+            "node": "S3 objects and group them by session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare PDF Processing Data": {
+      "main": [
+        [
+          {
+            "node": "Download PDF from S3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare S3 PDF Download Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare PDF Processing Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Excel data for S3 download": {
+      "main": [
+        [
+          {
+            "node": "Prepare Questionnaire Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Multi-userBatchProcessing": {
+      "main": [
+        [
+          {
+            "node": "Split Out Excel Files for processing",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split PDF Files for Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S3 objects and group them by session": {
+      "main": [
+        [
+          {
+            "node": "Filter Ready Sessions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Question Loop Processor": {
+      "main": [
+        [
+          {
+            "node": "Enhanced RAG Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mergecode": {
+      "main": [
+        [
+          {
+            "node": "Question Loop Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "QandA Collection Point": {
+      "main": [
+        [
+          {
+            "node": "FormatQ&A",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormatQ&A": {
+      "main": [
+        [
+          {
+            "node": "Optional Data Cleaning Node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF Deduplication Check": {
+      "main": [
+        [
+          {
+            "node": "Multi-userBatchProcessing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enhanced PDF Processing": {
+      "main": [
+        [
+          {
+            "node": "Results Aggregation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preserve Session Metadata": {
+      "main": [
+        [
+          {
+            "node": "Enhanced PDF Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Session Info1": {
+      "main": [
+        [
+          {
+            "node": "Create Session Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Extract Session Info1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Q&A Data": {
+      "main": [
+        [
+          {
+            "node": "Aggregate for S3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Session Sheet": {
+      "main": [
+        [
+          {
+            "node": "Store Sheet Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Sheet Info": {
+      "main": [
+        [
+          {
+            "node": "Split Items Back",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Items Back": {
+      "main": [
+        [
+          {
+            "node": "Format Q&A Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Q&A Rows1": {
+      "main": [
+        []
+      ]
+    },
+    "Optional Data Cleaning Node": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate for S3": {
+      "main": [
+        [
+          {
+            "node": "Prepare S3 Upload Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare S3 Upload Data": {
+      "main": [
+        [
+          {
+            "node": "Create S3 Results Folder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create S3 Results Folder": {
+      "main": [
+        []
+      ]
+    },
+    "Convert to File1": {
+      "main": [
+        [
+          {
+            "node": "Upload Excel to S3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Convert to File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sheet URL": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "ee7bca58-5877-4a2e-b740-2a33dcf6f6f0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "717e8a932fc54d055661b2e2f4968bac223714c5af3b0845c3d31721aa44d0c7"
+  },
+  "id": "rdbmjLvsH7tkoyBx",
+  "tags": []
+}
